@@ -6,8 +6,7 @@ source("R/_functions.R")
 
 ## Load test data
 rr_data <- readLines("data-raw/rri-jabf.txt") |>
-  as.numeric() |>
-  CardioCurveR::clean_outlier()
+  as.numeric()
 
 fit <- fit_autonomic_model(rr_ts = rr_data)
 
