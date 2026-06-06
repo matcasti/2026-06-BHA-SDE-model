@@ -1,0 +1,88 @@
+---
+title: "Latent Stochastic Differential Equation State-Space Framework for Cardiac Autonomic Neuroscience"
+date: today
+author: 
+  - name: "Matías Castillo-Aguilar"
+    affiliation: "Escuela de Medicina, Universidad de Magallanes, Punta Arenas, Chile."
+format: 
+  html:
+    title-block-style: manuscript
+    embed-resources: true
+---
+
+## Introduction
+
+The autonomic nervous system constitutes the primary regulatory interface governing cardiac chronotropy, continuously adjusting the pacemaker rate to meet dynamic physiological demands. This complex regulatory control is executed through the concurrent and often reciprocal antagonism of the parasympathetic and sympathetic neural branches. The continuous modulation of the sinoatrial node by these distinct neural pathways yields a highly complex, non-stationary temporal sequence of inter-beat intervals. Understanding the precise dynamical interplay between these two branches is paramount for cardiovascular physiology. However, because direct microneurographic measurement of cardiac efferent nerve activity remains highly invasive and technically constrained in human subjects, the field relies almost exclusively on non-invasive mathematical approximations derived from the electrocardiogram.
+
+The analysis of heart rate variability serves as the standard non-invasive proxy for evaluating cardiac autonomic regulation. Historically, the quantification of this variability has depended upon phenomenological signal processing techniques, primarily segmented into time-domain statistical variances and frequency-domain spectral transformations. While these classical metrics provide broad descriptive summaries of cardiac rhythmicity, they suffer from profound theoretical and mechanistic limitations. Standard frequency-domain partitioning relies on the assumption of signal stationarity, an assumption routinely violated by the inherent non-stationarity of biological systems responding to environmental perturbations. Furthermore, the classical interpretation of spectral bands fundamentally fails to isolate the underlying physiological drivers. While high-frequency variance is broadly accepted as a proxy for parasympathetic respiratory sinus arrhythmia, the low-frequency component represents a heavily confounded amalgamation of sympathetic activity, vagal modulation, and baroreflex feedback. 
+
+To address the limitations inherent in phenomenological descriptors, the field of cardiac autonomic neuroscience is increasingly exploring generative mathematical architectures. Mechanistic modeling requires frameworks capable of formally mapping unobserved, latent neurophysiological drivers to the observed temporal output. State-space formulations offer a rigorous mathematical environment for this objective, explicitly separating the hidden system dynamics from the stochastic observation process. By representing nominal parasympathetic and sympathetic tone as distinct, continuous latent variables, the observed cardiac interval sequence can be modeled as a downstream projection of their combined influence. 
+
+The conceptualization of autonomic regulation as a continuous-time dynamical system is most naturally mathematically described by a Multivariate Ornstein-Uhlenbeck (OU) process. The OU process is a foundational stochastic differential equation characterized by linear mean-reverting drift and constant stochastic diffusion. In the context of biophysics and statistical mechanics, a multidimensional OU process is mathematically equivalent to the overdamped Langevin dynamics of a system constrained within a quadratic potential energy landscape. The temporal evolution of the latent state is thereby governed by two competing forces: a deterministic restoring force that continuously pulls the system toward a homeostatic attractor, and stochastic diffusion components representing the continuous bombardment of intrinsic biological noise. The precise topographical structure of this potential landscape determines the transient behavior of the system, including the specific recovery time constants of the modeled autonomic branches and the magnitude of their reciprocal coupling. By mathematically recovering the geometry of this unobserved landscape, researchers can obtain parameters that formally describe these functional modulatory domains.
+
+However, the transition from theoretical generative models to empirical data inference introduces severe mathematical bottlenecks. Extracting distinct efferent sympathetic and parasympathetic traffic from a single univariate sequence of RR intervals is fundamentally an underdetermined inverse problem. Unconstrained optimization algorithms applied to such highly collinear spaces inevitably succumb to scaling ambiguities, frequency blending, and parameter divergence. To ensure the latent variables reflect distinct physiological timescales, biological realities must be mathematically enforced. The physical constraints of the autonomic nervous system dictate strict kinetic separations: parasympathetic modulation operates rapidly due to immediate acetylcholine clearance, whereas sympathetic modulation operates slowly due to G-protein coupled second-messenger cascades and slow norepinephrine reuptake. 
+
+The present manuscript introduces a comprehensive, two-dimensional latent Ornstein-Uhlenbeck state-space framework specifically engineered to address the fundamental challenges of non-invasive chronotropic inference. By establishing a rigorous parameterization of the nominal autonomic potential landscape, the proposed methodology explicitly isolates branch time constants, process noise amplitudes, and reciprocal coupling. To secure structural identifiability and physiological realism, strict literature-based boundaries are applied to the time constants, mathematically guaranteeing the kinetic separation of a rapid, vagally-associated state from a slower, sympathetically-associated state. By allowing the slow state to function as a biological integrator, the framework elegantly accounts for macroscopic baseline shifts around a true intrinsic pacemaker rate. Through this integrated mathematical and statistical pipeline, the proposed framework provides a robust methodology for transitioning cardiac autonomic research toward continuous, generative, and mathematically principled state-space representations.
+
+
+## Methods
+
+### Theoretical Framework and the Ornstein-Uhlenbeck Process
+
+The physiological regulation of the cardiac pacemaker is mathematically formalized through a two-dimensional latent state-space framework. This framework posits that the observed variations in cardiac timing are driven by two unobserved, interacting chronotropic branches. The system dynamics are defined as a zero-centered, coupled Bivariate Ornstein-Uhlenbeck (OU) process. Because isolating true neural traffic from a single temporal sequence is an ill-posed problem, the latent states serve as functional mathematical proxies defined strictly by their kinetic properties. The latent state variable $x_v$ is formulated to capture rapid parasympathetic-like chronotropic modulation, while $x_s$ is constructed to represent slower, sympathetic-like modulation. 
+
+The continuous-time evolution of these states is governed by the standard stochastic differential equation:
+
+$$
+\begin{bmatrix} dx_v \\ dx_s \end{bmatrix} = 
+- \Theta \begin{bmatrix} x_v \\ x_s \end{bmatrix} dt 
++ \Sigma \begin{bmatrix} dW_v \\ dW_s \end{bmatrix}
+$$
+
+Where $\Theta$ represents the drift (or mean-reversion) matrix, $\Sigma$ is the diagonal diffusion matrix containing the process noise amplitudes ($\sigma_v, \sigma_s$), and $dW$ represents independent standard Wiener processes. 
+
+### The Autonomic Potential Landscape Equivalency
+
+In the context of statistical mechanics, the mean-reversion matrix $\Theta$ of an OU process can be explicitly mapped to the gradient of a multidimensional potential energy landscape, $U(x_v, x_s)$. This function is defined as a bivariate quadratic form consisting of branch stiffness components ($k$) and a cross-coupling term:
+
+$$
+U(x_v, x_s) = \frac{1}{2}k_v x_v^2 + \frac{1}{2}k_s x_s^2 + k_{vs} x_v x_s
+$$
+
+Taking the negative gradient of this potential landscape ($-\nabla U$) yields the exact linear restoring forces of the OU process. Therefore, the system drift matrix is parameterized as:
+
+$$
+\Theta = \begin{bmatrix} k_v & k_{vs} \\ k_{vs} & k_s \end{bmatrix}
+$$
+
+The parameters $k_v$ and $k_s$ define the functional branch stiffness, controlling the restoring force exerted on the states when perturbed from their resting equilibrium. The reciprocal nature of the modeled control system is enforced through the coupling parameter $k_{vs}$. By constraining the coupling parameter to be strictly positive ($k_{vs} > 0$), the model structurally enforces mathematical reciprocity. To guarantee the mathematical stability of the OU process, ensuring the potential landscape remains a strictly positive-definite converging attractor, the coupling parameter is mathematically bounded to never exceed the geometric mean of the branch stiffnesses ($k_{vs} < \sqrt{k_v k_s}$).
+
+### Neurotransmitter Kinetics and Structural Identifiability
+
+To bridge the abstract mathematical stiffness parameters with interpretable physiology, the stiffness coefficients are inversely reparameterized as physiological recovery time constants ($\tau = 1/k$). These time constants, measured in beats, describe the exponential decay of the autonomic states back toward homeostasis following a perturbation. 
+
+To resolve the degenerate inverse problem of estimating two latent variables from a single observation, structural identifiability is enforced by mapping the unconstrained optimization search space into strictly bounded physiological regimes based on known neurotransmitter kinetics. The vagal state ($x_v$) represents acetylcholine kinetics, which undergo rapid synaptic degradation; thus, its time constant $\tau_v$ is bounded between 0.5 and 4.0 beats. The sympathetic state ($x_s$) represents norepinephrine and intracellular cAMP kinetics, which are cleared slowly; thus, its time constant $\tau_s$ is bounded between 8.0 and 35.0 beats. These boundaries are seamlessly enforced during estimation utilizing continuous logistic sigmoid transformations. This physiological bounding inherently guarantees that the vagal branch will always exhibit a faster time constant than the sympathetic branch ($\tau_v < \tau_s$, or equivalently $k_v > k_s$), providing strict frequency separation across the entire optimization domain without requiring arbitrary numerical penalties.
+
+### Observation Model and the Intrinsic Pacemaker Baseline
+
+The unobserved latent chronotropic dynamics are linked to empirical measurements through a linear observation model. The observable variable is the sequence of consecutive cardiac cycles, measured as the RR interval. To achieve scale identifiability, observation mapping coefficients are fixed to unity, allowing the latent states to operate directly in absolute milliseconds:
+
+$$
+RR_t = \mu_{RR} + x_{v,t} - x_{s,t} + \varepsilon_t, \quad \varepsilon_t \sim \mathcal{N}(0, \sigma_\varepsilon^2)
+$$
+
+The scalar parameter $\mu_{RR}$ represents the intrinsic heart rate, the theoretical baseline period of the sinoatrial node in the complete absence of autonomic modulation. The mathematical formulation forces the nominal vagal component ($x_v$) to additively lengthen the RR interval and the nominal sympathetic component ($x_s$) to subtractively shorten the RR interval. 
+
+By eliminating deterministic baseline filters (e.g., LOESS extraction) commonly used in heart rate variability studies, this architecture mathematically delegates the tracking of slow, macroscopic physiological shifts entirely to the latent state equations. Due to the strictly enforced slow time constant of the sympathetic state ($\tau_s$), $x_s$ functions as a biological integrator, naturally stretching to absorb sustained baseline wander, while the rapid $x_v$ state is freed to isolate high-frequency, beat-to-beat stochastic variance.
+
+### Inference Methodology and Exact Discretization
+
+Parameter estimation is executed via Maximum Likelihood Estimation across a 7-parameter configuration: the logit-transformed time constants ($\tau_v, \tau_s$), the bounded coupling fraction, the logarithmically transformed process noises ($\sigma_v, \sigma_s$), the measurement noise ($\sigma_\varepsilon$), and the intrinsic baseline ($\mu_{RR}$).
+
+A primary mathematical advantage of formulating the system as an OU process is the existence of an exact, analytical solution for discrete-time transitions. The methodology mathematically eliminates the truncation error inherent in Euler approximations by computing the exact discrete state transition matrix through the Matrix Exponential of the continuous system dynamics ($\exp(-\Theta \cdot \Delta t)$) evaluated at the beat-to-beat time step. The standard Kalman Filter subsequently propagates the expected value and the covariance matrix of the latent states forward in time. The exact sequence of one-step-ahead prediction innovations is extracted to construct the precise negative log-likelihood function. Optimization of the parameter vector is executed utilizing the Broyden-Fletcher-Goldfarb-Shanno (BFGS) algorithm.
+
+### Uncertainty Quantification and Diagnostic Validation
+
+Following the convergence of the maximum likelihood optimization algorithm, uncertainty quantification is performed by evaluating the local curvature of the unconstrained likelihood surface. Because optimization algorithms occasionally probe regions near the boundaries of the transformed parameter space, the resulting Hessian matrices can exhibit indefinite eigenvalues, leading to uncomputable standard errors. To safely correct this instability, the raw inverse Hessian is projected onto the nearest positive-definite matrix manifold utilizing Higham’s algorithm. Standard errors are extracted from the regularized covariance matrix to compute 95% confidence intervals in the unconstrained space, which are subsequently passed through the inverse logistic and exponential transform functions to yield robust, asymmetric confidence intervals in the true physiological domain.
+
+Rigorous model validation is enforced through the diagnostic assessment of the true filter innovation sequence. The state-space assumption dictates that the sequence of one-step-ahead prediction errors must behave as an independent and identically distributed sequence of Gaussian variables. The Box-Ljung test statistic is calculated across the innovation sequence to objectively quantify deviations from the white noise assumption, providing confirmation that the mathematically constrained OU parameterization successfully captures the temporal structure of the measured autonomic variance.
