@@ -29,82 +29,62 @@ The present manuscript introduces a comprehensive, two-dimensional latent Ornste
 
 ### System Architecture and Observation Equation
 
-The observed time series comprises the natural logarithm of sequential RR intervals, denoted as $y_t = \log(RR_t)$. The logarithmic transformation maps rate fluctuations to an additive domain and stabilizes heteroscedasticity. The system is formulated as a discrete-time, linear, Gaussian state-space model. A five-dimensional latent state vector, $\mathbf{x}_t \in \mathbb{R}^5$, governs the system dynamics. The observation equation maps the latent physiological processes to the measured time series data, defined as:
+The observed time series comprises the natural logarithm of sequential RR intervals. The logarithmic transformation maps rate fluctuations to an additive domain and stabilizes heteroscedasticity across the recording. The system is formulated as a discrete-time, linear, Gaussian state-space model governed by a multi-dimensional latent state representation. The observation equation maps the unobserved physiological processes directly to the measured time series data through a scalar additive composition:
 
-$$ y_t = H \mathbf{x}_t + \mu_{rr} + \epsilon_t $$
+$$ 
+y_t = x_{v,t} - x_{s,t} + x_{m,t} + \mu_{rr} + \epsilon_t 
+$$
 
-The measurement vector $H \in \mathbb{R}^{1 \times 5}$ is defined as $H = [1, -1, 1, 0, 0]$. This vector specifies the additive composition of the observed measurement: the first state corresponds to vagal modulation, the second state corresponds to sympathetic modulation inverted by a negative coefficient, and the third state corresponds to the primary lag of the mechanical memory process. The scalar parameter $\mu_{rr}$ represents the mathematical baseline of the pacemaker period. The term $\epsilon_t \sim \mathcal{N}(0, R)$ denotes measurement noise. The variance parameter $R$ is fixed to $10^{-8}$. This parameter assignment maintains numerical condition numbers during matrix inversion procedures within the filter update equations.
+In this formulation, the term $x_{v,t}$ represents the vagal modulation which lengthens the interval, while $x_{s,t}$ represents the sympathetic modulation which shortens the interval. The variable $x_{m,t}$ represents the immediate mechanical memory of the pacemaker tissue. The scalar parameter $\mu_{rr}$ establishes the mathematical baseline of the individual's pacemaker period. The final term $\epsilon_t$ denotes measurement noise, modeled as a zero-mean Gaussian process with a variance fixed to a negligible constant of $10^{-8}$. This rigid parameter assignment ensures strict numerical stability during the variance inversion procedures executed later in the estimation pipeline.
 
 ### Continuous-Time Autonomic Kinetics
 
-The neural dynamics are specified as an overdamped bivariate continuous-time Ornstein-Uhlenbeck stochastic differential equation. The continuous state vector $\mathbf{x}^{(v,s)}_t = [x_{v,t}, x_{s,t}]^T$ is governed by the drift matrix $A \in \mathbb{R}^{2 \times 2}$ and the diffusion matrix $\Sigma \in \mathbb{R}^{2 \times 2}$, defined by the equation:
+The neural control over the cardiac pacemaker operates as a continuous physiological push-and-pull mechanism, driven by stochastic neurotransmitter fluctuations. We model these neural dynamics using an overdamped bivariate continuous-time Ornstein-Uhlenbeck stochastic differential equation. The continuous neural states are governed by a coupled system of algebraic differential equations:
 
-$$ d\mathbf{x}^{(v,s)}_t = A \mathbf{x}^{(v,s)}_t dt + \Sigma d\mathbf{W}_t $$
+$$ 
+dx_{v,t} = \left(-\frac{1}{\tau_v} x_{v,t} - a_{12} x_{s,t}\right)dt + \sigma_v dW_{v,t} 
+$$
 
-The drift matrix $A$ incorporates the recovery time constants and the symmetric cross-coupling interactions between the physiological branches:
+$$ 
+dx_{s,t} = \left(-a_{12} x_{v,t} - \frac{1}{\tau_s} x_{s,t}\right)dt + \sigma_s dW_{s,t} 
+$$
 
-$$ A = \begin{bmatrix} -\frac{1}{\tau_v} & -a_{12} \\ -a_{12} & -\frac{1}{\tau_s} \end{bmatrix} $$
+The parameters $\tau_v$ and $\tau_s$ represent the physiological recovery time constants for the vagal and sympathetic branches, respectively. To enforce biological plausibility during computational optimization, logistic mapping functions constrain the vagal recovery time to a rapid physiological window of 0.3 to 2.0 beats, and the sympathetic recovery time to a slower window of 10.0 to 30.0 beats. The coupling parameter $a_{12}$ dictates the magnitude of the symmetric cross-inhibition between the branches. This parameter is strictly constrained by an upper bound equal to the geometric mean of the two inverse time constants, unconditionally guaranteeing the mathematical stability of the resultant dynamical system. 
 
-Physiological boundaries are enforced via logistic sigmoid mapping functions applied to unconstrained parameters $\theta_1$, $\theta_2$, and $\theta_3$. The vagal recovery time constant is bounded as $\tau_v \in [0.5, 4.0]$. The sympathetic recovery time constant is bounded as $\tau_s \in [8.0, 35.0]$. The coupling parameter $a_{12}$ is constrained by an upper bound equal to the geometric mean of the diagonal elements, $a_{12} \le \sqrt{(1/\tau_v)(1/\tau_s)}$, guaranteeing matrix stability. The discrete-time transition matrix for the autonomic neural block is calculated by applying the matrix exponential function, $\mathbf{F}_{SDE} = \exp(A \Delta t)$, where the time step $\Delta t = 1$. 
+To map these continuous differential equations to the discrete heartbeat observations without introducing integration biases, we employ Van Loan's algebraic method. This mathematically precise technique translates the continuous differential equations into exact discrete-time step transitions and integrated process noise variances, ensuring that minor computational rounding errors do not artificially accumulate into large structural biases across extended temporal integrations. A strict algebraic projection is additionally applied to the integrated noise covariance to enforce absolute mathematical symmetry.
 
 ### Intrinsic Sinoatrial Node Memory Integration
 
-An autoregressive process of the third order, AR(3), models the mechanical pacemaking dynamics. The Durbin-Levinson recursive algorithm is utilized to ensure covariance stationarity without enforcing nonlinear boundary constraints on the optimization surface. Three partial autocorrelation reflection coefficients, $k_1, k_2, k_3$, are generated from unconstrained parameters $\theta_6, \theta_7, \theta_8$ via logistic mapping to the interval $(-1, 1)$, such that $k_i = 2\text{logit}^{-1}(\theta_{i+5}) - 1$. The recursive algorithm derives the autoregressive coefficients:
+Operating independently from the descending neural traffic, the intrinsic pacemaking tissue of the sinoatrial node possesses a persistent mechanical memory of its preceding activation intervals. We capture this property using a third-order autoregressive process, ensuring the current mechanical state is dynamically influenced by the pattern of the three prior beats, driven by independent mechanical noise $\eta_t$:
 
-$$ \phi_{1,1} = k_1 $$
-$$ \phi_{2,2} = k_2, \quad \phi_{2,1} = \phi_{1,1} - k_2 \phi_{1,1} $$
-$$ \phi_{3,3} = k_3, \quad \phi_{3,2} = \phi_{2,2} - k_3 \phi_{2,1}, \quad \phi_{3,1} = \phi_{2,1} - k_3 \phi_{2,2} $$
+$$ 
+x_{m,t} = \phi_1 x_{m,t-1} + \phi_2 x_{m,t-2} + \phi_3 x_{m,t-3} + \eta_t 
+$$
 
-The final autoregressive coefficients are assigned as $\phi_1 = \phi_{3,1}$, $\phi_2 = \phi_{3,2}$, and $\phi_3 = \phi_{3,3}$. This procedure guarantees the characteristic roots of the AR(3) polynomial remain outside the complex unit circle.
-
-### Augmented State-Space Matrix Construction
-
-The discrete-time autonomic transition matrix and the autoregressive process are combined into a five-by-five block-diagonal transition matrix $\mathbf{F}$. The matrix is structured as follows:
-
-$$ \mathbf{F} = \begin{bmatrix} \mathbf{F}_{SDE} & \mathbf{0}_{2 \times 3} \\ \mathbf{0}_{3 \times 2} & \mathbf{F}_{AR3} \end{bmatrix} $$
-
-The sub-matrix $\mathbf{F}_{AR3} \in \mathbb{R}^{3 \times 3}$ is constructed in companion form to execute the autoregressive state transitions:
-
-$$ \mathbf{F}_{AR3} = \begin{bmatrix} \phi_1 & \phi_2 & \phi_3 \\ 1 & 0 & 0 \\ 0 & 1 & 0 \end{bmatrix} $$
-
-The process noise covariance matrix $\mathbf{Q} \in \mathbb{R}^{5 \times 5}$ is formulated as a diagonal matrix. The diagonal elements correspond to the exponentiated variance parameters integrated over the time step. The matrix is defined as $\mathbf{Q} = \text{diag}(\sigma_v^2 \Delta t, \sigma_s^2 \Delta t, \sigma_\eta^2, 0, 0)$.
+To mathematically guarantee that this memory process remains strictly stationary and avoids predicting biologically impossible compounding heart rates, we utilize the Durbin-Levinson recursive algorithm. The unconstrained optimization surface generates three intermediate reflection coefficients mathematically bounded between negative one and positive one. The algorithm expands these reflection coefficients through a sequence of recursive algebraic substitutions to derive the final autoregressive weights $\phi_1, \phi_2,$ and $\phi_3$. This procedural transformation ensures the characteristic roots of the underlying autoregressive polynomial persistently remain outside the complex unit circle. The discrete autoregressive sequence is then concatenated with the exact discrete neural transitions, forming a unified multi-dimensional system that progresses simultaneously at each heartbeat.
 
 ### Recursive Bayesian Filtering Execution
 
-The inference of the latent state vector $\mathbf{x}_t$ is executed via a linear discrete Kalman filter. For each temporal index $t \in \{1, 2, ..., N\}$, the filter computes the predicted state vector and the predicted state error covariance matrix:
+The sequential inference of the latent physiological state vector relies on an exact discrete linear Kalman filter initialized with the unconditional stationary distribution of the system. The initial state uncertainty is derived analytically prior to the temporal evaluation by solving the discrete Lyapunov equation, augmented by a Moore-Penrose generalized inverse fallback algorithm to guarantee a continuous topological projection if the optimization sequence approaches non-stationary limits. For each sequential heartbeat index, the filter generates a prior prediction of the physiological states and their corresponding uncertainty. The algorithm then evaluates the innovation scalar $\tilde{y}_t$, defined algebraically as the difference between the actual observed logarithm of the RR interval and the model's expected measurement:
 
-$$ \hat{\mathbf{x}}_{t|t-1} = \mathbf{F} \hat{\mathbf{x}}_{t-1|t-1} $$
-$$ P_{t|t-1} = \mathbf{F} P_{t-1|t-1} \mathbf{F}^T + \mathbf{Q} $$
+$$ 
+\tilde{y}_t = y_t - (\hat{x}_{v,t} - \hat{x}_{s,t} + \hat{x}_{m,t} + \mu_{rr}) 
+$$
 
-The algorithm calculates the innovation scalar $\tilde{y}_t$ and the innovation variance $S_t$:
-
-$$ \tilde{y}_t = y_t - (H \hat{\mathbf{x}}_{t|t-1} + \mu_{rr}) $$
-$$ S_t = H P_{t|t-1} H^T + R $$
-
-A conditional evaluation validates the innovation variance $S_t$. If $S_t \le 10^{-10}$ or $S_t \notin \mathbb{R}$, the function returns an infinite scalar to the optimizer. If the variance condition is satisfied, the Kalman gain vector $K_t$ is computed, followed by the updates to the state vector and the state error covariance matrix:
-
-$$ K_t = P_{t|t-1} H^T S_t^{-1} $$
-$$ \hat{\mathbf{x}}_{t|t} = \hat{\mathbf{x}}_{t|t-1} + K_t \tilde{y}_t $$
-$$ P_{t|t} = (I_{5} - K_t H) P_{t|t-1} $$
-
-The updated covariance matrix $P_{t|t}$ is averaged with its transpose to maintain matrix symmetry, preventing the accumulation of floating-point arithmetic errors.
+Concurrently, the algorithm calculates the expected variance of this innovation scalar, which incorporates both the projected uncertainty of the latent states and the fixed measurement noise variance. A computational safeguard validates this variance, returning an infinite penalty to the optimization routine if numerical singularities emerge. Provided the variance remains strictly positive, the filter computes the optimal Kalman gain, which dictates the proportional degree to which the new observation should correct the prior predictions. The physiological state estimates and the corresponding uncertainty metrics are subsequently updated to their final posterior values. To rigorously protect the structural integrity of the uncertainty variance during this correction, the update employs the Joseph stabilized formulation. This specific algebraic architecture is unconditionally positive semi-definite, guaranteeing that the mathematical uncertainty of the system never collapses due to accumulated floating-point arithmetic imprecision.
 
 ### Maximum Likelihood Estimation Protocol
 
-The parameter vector $\Theta \in \mathbb{R}^{10}$ is estimated via the numerical maximization of the log-likelihood function. The filter calculates the log-likelihood sequentially during the evaluation over the time series. The log-likelihood function $\mathcal{L}(\Theta)$ is defined as:
+The unified parameter vector representing all physiological time constants, coupling coefficients, and noise variances is estimated through the numerical maximization of the marginal log-likelihood function. The function sequentially accumulates the exact log-likelihood $\mathcal{L}(\Theta)$ during the recursive evaluation over the entire time series:
 
-$$ \mathcal{L}(\Theta) = -\frac{1}{2} \sum_{t=1}^N \left( \log(2\pi S_t) + \frac{\tilde{y}_t^2}{S_t} \right) $$
+$$ 
+\mathcal{L}(\Theta) = -\frac{1}{2} \sum_{t=1}^N \left( \log(2\pi S_t) + \frac{\tilde{y}_t^2}{S_t} \right) 
+$$
 
-The optimization algorithm minimizes the negative log-likelihood objective function, defined as $\hat{\Theta} = \text{arg}\min_{\Theta} (-\mathcal{L}(\Theta))$. The minimization relies on the Broyden-Fletcher-Goldfarb-Shanno numerical algorithm. The initial parameter coordinate $\Theta_{init}$ is established via mapping functions. The vagal and sympathetic time constants are initialized to respective targets of $1.5$ and $15.0$ beats. The autoregressive reflection coefficients are initialized to establish a positive first-lag correlation, mapping $k_1$ to $0.5$ and $k_2, k_3$ to $0$. The baseline location parameter $\mu_{rr}$ is initialized to the statistical mean of the sequence $y_t$. The algorithm iterates until gradient convergence or the boundary of $2500$ evaluations is reached.
+To ensure absolute algorithmic convergence and immunity against local topological minima within the highly non-linear parameter space, the estimation framework executes a global multi-start protocol via Latin Hypercube Sampling. A mathematically stratified grid establishes the initial starting points mapped within plausible physiological coordinates. The parametric configuration yielding the lowest global negative log-likelihood proceeds to a final deep numerical minimization utilizing the Broyden-Fletcher-Goldfarb-Shanno algorithm. This continuous optimization protocol iterates until strict gradient convergence criteria or the absolute boundary of maximum functional evaluations is successfully satisfied.
 
 ### Uncertainty Quantification and Model Diagnostics
 
-Uncertainty boundaries for $\hat{\Theta}$ are calculated using the analytical Hessian matrix $H(\hat{\Theta})$ generated by the optimization algorithm. The Fisher Information matrix is computed as $\mathcal{I}(\hat{\Theta}) = -H(\hat{\Theta})$. A generalized inverse algorithm projects the matrix to a symmetric positive-definite configuration space if numerical topological anomalies are detected. The asymptotic standard errors for the parameters are extracted from the diagonal elements of the inverse Fisher Information matrix:
+Following the isolation of the optimal physiological parameter vector, uncertainty boundaries are calculated by extracting the analytical Hessian matrix generated by the optimization algorithm. The inversion of the Fisher Information matrix yields the asymptotic standard errors for the estimated parameters, mapped through their corresponding inverse mathematical link functions to return bounds in physical units. A generalized inverse projection algorithm intervenes to maintain a symmetric positive-definite configuration space if numerical topological anomalies are detected near the parameter boundaries. The overall quality and explanatory power of the specified model architecture are assessed using the Akaike Information Criterion, establishing a standardized metric to compare the penalized likelihood against alternative theoretical architectures. 
 
-$$ SE(\hat{\theta}_i) = \sqrt{[\mathcal{I}(\hat{\Theta})^{-1}]_{ii}} $$
-
-Confidence boundaries corresponding to a normal standard deviation mapping are computed as $\hat{\theta}_i \pm 1.96 \cdot SE(\hat{\theta}_i)$. The point estimates and interval boundaries are transformed through the corresponding inverse link functions to return values in physical units. Model evaluation relies on the Akaike Information Criterion, calculated as $AIC = 2k - 2\mathcal{L}(\hat{\Theta})$, where $k=10$. The Ljung-Box test statistic evaluates the unscaled sequence of innovation errors $\tilde{y}_t$ to assess the null hypothesis of independent and identical distribution. The test statistic is calculated as:
-
-$$ Q = N(N+2) \sum_{k=1}^{10} \frac{\hat{\rho}_k^2}{N-k} $$
-
-The variable $\hat{\rho}_k$ represents the sample autocorrelation of the innovations at lag $k$. The probability value derived from the $Q$ statistic quantifies the presence of unmodeled sequential dynamics within the time series data.
+Finally, the unscaled sequence of sequential innovation errors is subjected to the Ljung-Box test to formalize the null hypothesis of independent and identically distributed noise. Recognizing that the evaluation of model residuals alters the true asymptotic chi-square distribution, the test statistic strictly incorporates a degrees of freedom penalty corresponding to the number of estimated parameters. Consequently, the statistical independence tests are explicitly evaluated over extended temporal lags ranging exclusively from eleven to thirty consecutive beats, assuring theoretically valid probability values and confirming the complete structural absorption of the underlying physiological dynamics.

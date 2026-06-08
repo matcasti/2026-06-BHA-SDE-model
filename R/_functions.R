@@ -1,106 +1,123 @@
 #' Run Kalman Filter with Exact Van Loan Discretization and Joseph Stabilized Update
 #'
-#' @param theta Numeric vector of 10 transformed parameters.
+#' @param theta Numeric vector of 7 transformed parameters.
 #' @param log_rr_ts Numeric vector of log-transformed RR intervals.
 #' @param dt Time step (e.g., 1 for beat-to-beat).
 #' @param return_states Boolean; if TRUE, returns state variables and innovations.
 run_kalman_filter <- function(theta, log_rr_ts, dt = 1, return_states = FALSE) {
 
-  # 1. Autonomic Kinetics
+  # ==============================================================================
+  # 1. Autonomic Kinetics (7-Parameter Architecture)
+  # ==============================================================================
   tau_v_min <- 0.3; tau_v_max <- 2.0
-  tau_s_min <- 10.0; tau_s_max <- 30.0
+  rho_min <- 5.0; rho_max <- 15.0
 
-  tau_v <- tau_v_min + (tau_v_max - tau_v_min) * plogis(theta[1])
-  tau_s <- tau_s_min + (tau_s_max - tau_s_min) * plogis(theta[2])
+  # Hyperspherical mapping replaces plogis
+  tau_v <- tau_v_min + (tau_v_max - tau_v_min) * (sin(theta[1])^2)
+
+  log_rho <- log(rho_min) + (log(rho_max) - log(rho_min)) * (sin(theta[2])^2)
+  tau_s <- tau_v * exp(log_rho)
 
   a11 <- 1 / tau_v
   a22 <- 1 / tau_s
   max_a12 <- sqrt(a11 * a22)
-  a12 <- max_a12 * plogis(theta[3])
+  a12 <- max_a12 * (sin(theta[3])^2)
 
-  sig1 <- exp(theta[4])
-  sig2 <- exp(theta[5])
+  sigma_stat_v <- exp(theta[4])
+  sigma_stat_s <- exp(theta[5])
 
-  # 2. Intrinsic SA Node Memory (AR3 Persistent State) via Durbin-Levinson
-  k1 <- 2 * plogis(theta[6]) - 1
-  k2 <- 2 * plogis(theta[7]) - 1
-  k3 <- 2 * plogis(theta[8]) - 1
+  # 2. Intrinsic SA Node Memory (Strictly Positive AR1)
+  k1 <- (sin(theta[6])^2)
 
-  phi1_1 <- k1
-  phi2_2 <- k2
-  phi2_1 <- phi1_1 - k2 * phi1_1
-  phi3_3 <- k3
-  phi3_2 <- phi2_2 - k3 * phi2_1
-  phi3_1 <- phi2_1 - k3 * phi2_2
+  # AR Variance Bounding: Parameterize stationary variance, derive driving noise conditionally
+  sigma_stat_eta <- exp(theta[7])
+  sig_eta <- sigma_stat_eta * sqrt(1 - k1^2)
 
-  phi1 <- phi3_1
-  phi2 <- phi3_2
-  phi3 <- phi3_3
-
-  sig_eta <- exp(theta[9])
-  mu_rr <- theta[10]
-
+  # Removing mu_rr from optimization
+  mu_rr <- mean(log_rr_ts)
   N <- length(log_rr_ts)
 
   # ==============================================================================
-  # 3. EXACT DISCRETIZATION VIA VAN LOAN'S METHOD (Solves the fast tau_v problem)
+  # 3. EXACT DISCRETIZATION VIA VAN LOAN'S METHOD
   # ==============================================================================
   A_2x2 <- matrix(c(-a11, -a12, -a12, -a22), nrow = 2, byrow = TRUE)
-  Sigma_c <- matrix(c(sig1^2, 0, 0, sig2^2), nrow = 2, ncol = 2)
 
-  # Build the 4x4 augmented block matrix
+  # Stationary Covariance Reparameterization: Solve continuous Lyapunov algebraically
+  Sigma_stat <- matrix(c(sigma_stat_v^2, 0, 0, sigma_stat_s^2), nrow = 2, ncol = 2)
+  Sigma_c <- -(A_2x2 %*% Sigma_stat + Sigma_stat %*% t(A_2x2))
+
+  if (any(!is.finite(A_2x2)) || any(!is.finite(Sigma_c))) {
+    if (return_states) stop("Filter diverged: Infinite matrix entries explored.")
+    return(1e9)
+  }
+
+  # PSD Check for algebraically derived continuous noise
+  if (any(eigen(Sigma_c, symmetric = TRUE)$values < 0)) {
+    if (return_states) stop("Filter diverged: Continuous process noise not PSD.")
+    return(1e9)
+  }
+
   Z <- rbind(
     cbind(-A_2x2, Sigma_c),
     cbind(matrix(0, 2, 2), t(A_2x2))
   )
 
-  # A single matrix exponential yields both exact F and exact Q
   expZ <- expm::expm(Z * dt)
   F_2x2 <- t(expZ[3:4, 3:4])
   Q_2x2 <- F_2x2 %*% expZ[1:2, 3:4]
+  Q_2x2 <- (Q_2x2 + t(Q_2x2)) / 2
+
   # ==============================================================================
-
-  # Augment into a 5x5 Block Matrix (Autonomic Dynamics + AR3 Memory)
-  F_mat <- matrix(0, nrow = 5, ncol = 5)
+  # 3-DIMENSIONAL STATE MATRICES SETUP
+  # ==============================================================================
+  F_mat <- matrix(0, nrow = 3, ncol = 3)
   F_mat[1:2, 1:2] <- F_2x2
-  F_mat[3, 3:5] <- c(phi1, phi2, phi3)
-  F_mat[4, 3] <- 1
-  F_mat[5, 4] <- 1
+  F_mat[3, 3] <- k1
 
-  # 5x5 Exact Process Noise Covariance
-  Q <- matrix(0, nrow = 5, ncol = 5)
+  Q <- matrix(0, nrow = 3, ncol = 3)
   Q[1:2, 1:2] <- Q_2x2
   Q[3, 3] <- sig_eta^2
 
-  H <- matrix(c(1, -1, 1, 0, 0), nrow = 1)
-  R <- 1e-8
+  # Observation maps directly to [Vagal, Sympathetic, SA_Memory]
+  H <- matrix(c(1, -1, 1), nrow = 1)
+
+  R <- 1e-5
   R_mat <- matrix(R, 1, 1)
 
-  x_hat <- matrix(0, nrow = 5, ncol = N)
-  P_var <- matrix(0, nrow = 5, ncol = N)
+  x_hat <- matrix(0, nrow = 3, ncol = N)
+  P_var <- matrix(0, nrow = 3, ncol = N)
   innovations <- numeric(N)
 
   # ==============================================================================
   # 4. EXACT STATIONARY INITIALIZATION (Discrete Lyapunov Equation)
   # ==============================================================================
-  # Solves vec(P) = (I - F x F)^-1 * vec(Q) to instantly eliminate burn-in
-  P_init <- tryCatch({
-    I_25 <- diag(25)
-    F_kron_F <- kronecker(F_mat, F_mat)
-    vec_Q <- as.vector(Q)
-    matrix(solve(I_25 - F_kron_F, vec_Q), 5, 5)
-  }, error = function(e) diag(5) * 1.0) # Fallback to Identity if optimizer proposes singular bounds
+  I_9 <- diag(9)
+  F_kron_F <- kronecker(F_mat, F_mat)
+  vec_Q <- as.vector(Q)
 
-  P <- P_init
-  P_var[, 1] <- diag(P)
-  # ==============================================================================
+  P_init <- tryCatch({
+    matrix(solve(I_9 - F_kron_F, vec_Q), 3, 3)
+  }, error = function(e) {
+    matrix(MASS::ginv(I_9 - F_kron_F) %*% vec_Q, 3, 3)
+  })
+
+  # Enforce strict symmetry and Positive Definiteness
+  P_init <- (P_init + t(P_init)) / 2
+  eigs <- eigen(P_init, symmetric = TRUE, only.values = TRUE)$values
+  if (any(eigs < 1e-10)) {
+    P_init <- as.matrix(Matrix::nearPD(P_init, ensureSymmetry = TRUE)$mat)
+  }
+
+  x_pred <- matrix(0, nrow = 3, ncol = 1)
+  P_pred <- P_init
 
   log_likelihood <- 0
-  I_5 <- diag(5)
+  I_3 <- diag(3)
 
-  for (t in 2:N) {
-    x_pred <- F_mat %*% x_hat[, t-1]
-    P_pred <- F_mat %*% P %*% t(F_mat) + Q
+  # ==============================================================================
+  # 5. KALMAN FILTER LOOP
+  # ==============================================================================
+  for (t in 1:N) {
 
     y_pred <- (H %*% x_pred)[1,1] + mu_rr
     y_obs <- log_rr_ts[t]
@@ -110,7 +127,7 @@ run_kalman_filter <- function(theta, log_rr_ts, dt = 1, return_states = FALSE) {
 
     S <- (H %*% P_pred %*% t(H))[1,1] + R
 
-    if (is.na(S) || S <= 1e-10) {
+    if (!is.finite(S) || S < 1e-9) {
       if (return_states) stop("Filter diverged.")
       return(1e9)
     }
@@ -118,17 +135,18 @@ run_kalman_filter <- function(theta, log_rr_ts, dt = 1, return_states = FALSE) {
     K <- P_pred %*% t(H) / S
     x_hat[, t] <- x_pred + K * y_err
 
-    # ==============================================================================
-    # 5. JOSEPH STABILIZED COVARIANCE UPDATE (Guarantees Positive Definiteness)
-    # ==============================================================================
-    IKH <- I_5 - K %*% H
+    IKH <- I_3 - K %*% H
     P <- IKH %*% P_pred %*% t(IKH) + K %*% R_mat %*% t(K)
     P <- (P + t(P)) / 2
-    # ==============================================================================
 
     P_var[, t] <- diag(P)
 
     log_likelihood <- log_likelihood - 0.5 * (log(2 * pi * S) + (y_err^2) / S)
+
+    if (t < N) {
+      x_pred <- F_mat %*% x_hat[, t]
+      P_pred <- F_mat %*% P %*% t(F_mat) + Q
+    }
   }
 
   nll <- -log_likelihood
@@ -141,114 +159,131 @@ run_kalman_filter <- function(theta, log_rr_ts, dt = 1, return_states = FALSE) {
   }
 }
 
-#' Fit the 10-Parameter Augmented Autonomic SDE Model
-fit_autonomic_model <- function(rr_ts) {
+#' L2 Penalized Negative Log-Likelihood Objective Function
+#'
+#' Evaluates the exact linear Gaussian state-space model and applies
+#' a smooth L2 (Ridge) regularization penalty to targeted auxiliary parameters.
+#'
+#' @param theta Numeric vector of 7 unconstrained optimization parameters.
+#' @param log_rr_ts Numeric vector of the log-transformed RR interval time series.
+#' @param lambda Scalar hyperparameter dictating the severity of the L2 shrinkage.
+#' @return The L2 penalized negative log-likelihood scalar.
+evaluate_penalized_nll <- function(theta, log_rr_ts, lambda = 0) {
+  base_nll <- run_kalman_filter(theta, log_rr_ts, dt = 1, return_states = FALSE)
 
-  if (!requireNamespace("lhs", quietly = TRUE)) {
-    stop("Package 'lhs' is required.")
-  }
+  if (is.infinite(base_nll) || base_nll == 1e9) return(1e9)
 
-  log_rr_ts <- log(rr_ts)
-  mu_log_rr <- mean(log_rr_ts)
+  # Direct quadratic penalty on the unbounded parameter space
+  l2_penalty <- lambda * (theta[3]^2)
 
-  # LHS already implements Claude's recommendation for global multi-start robustness
-  n_starts <- 20
-  lhc <- lhs::randomLHS(n_starts, 10)
-  theta_starts <- matrix(0, nrow = n_starts, ncol = 10)
-
-  theta_starts[, 1] <- qlogis(0.1) + lhc[, 1] * (qlogis(0.9) - qlogis(0.1))
-  theta_starts[, 2] <- qlogis(0.1) + lhc[, 2] * (qlogis(0.9) - qlogis(0.1))
-  theta_starts[, 3] <- qlogis(0.01) + lhc[, 3] * (qlogis(0.5) - qlogis(0.01))
-  theta_starts[, 4] <- log(0.01) + lhc[, 4] * (log(0.1) - log(0.01))
-  theta_starts[, 5] <- log(0.01) + lhc[, 5] * (log(0.1) - log(0.01))
-  theta_starts[, 6] <- qlogis(0.5) + lhc[, 6] * (qlogis(0.95) - qlogis(0.5))
-  theta_starts[, 7] <- qlogis(0.1) + lhc[, 7] * (qlogis(0.9) - qlogis(0.1))
-  theta_starts[, 8] <- qlogis(0.1) + lhc[, 8] * (qlogis(0.9) - qlogis(0.1))
-  theta_starts[, 9] <- log(0.001) + lhc[, 9] * (log(0.05) - log(0.001))
-  theta_starts[, 10] <- (mu_log_rr - 0.15) + lhc[, 10] * (0.30)
-
-  best_nll <- Inf
-  best_theta <- NULL
-
-  for (i in 1:n_starts) {
-    fit_try <- tryCatch({
-      optim(par = theta_starts[i, ],
-            fn = run_kalman_filter,
-            log_rr_ts = log_rr_ts,
-            dt = 1,
-            method = "BFGS",
-            hessian = FALSE,
-            control = list(maxit = 300))
-    }, error = function(e) list(value = Inf))
-
-    if (fit_try$value < best_nll) {
-      best_nll <- fit_try$value
-      best_theta <- fit_try$par
-    }
-  }
-
-  if (is.infinite(best_nll)) stop("Filter divergence: LHS failed.")
-
-  final_fit <- optim(par = best_theta,
-                     fn = run_kalman_filter,
-                     log_rr_ts = log_rr_ts,
-                     dt = 1,
-                     method = "BFGS",
-                     hessian = TRUE,
-                     control = list(maxit = 2500, trace = 1))
-
-  return(final_fit)
+  return(base_nll + l2_penalty)
 }
 
+#' Fit Adaptive Autonomic State-Space Model (Deterministic Initialization)
+#'
+#' Executes a single deep numerical minimization on the penalized log-likelihood surface
+#' using physiologically anchored starting coordinates, bypassing global LHS exploration.
+#'
+#' @param rr_ts Numeric vector of the raw RR interval time series.
+#' @param lambda Scalar hyperparameter dictating the L2 (Ridge) shrinkage severity.
+#' @return A fitted model object containing the optimal parameter vector and the exact Hessian.
+fit_autonomic_model <- function(rr_ts, lambda = 0) {
+  log_rr_ts <- log(rr_ts)
 
-#' Extract Raw Model Parameters
+  # 7-Parameter Deterministic Anchoring (Arcsine Square Root transformations)
+  init_theta1 <- asin(sqrt((1.0 - 0.3) / (2.0 - 0.3)))
+  init_theta2 <- asin(sqrt((log(10.0) - log(5.0)) / (log(15.0) - log(5.0)))) # Anchored at rho = 10
+  init_theta3 <- asin(sqrt(0.10))
+  init_theta4 <- log(0.05)
+  init_theta5 <- log(0.05)
+  init_theta6 <- asin(sqrt(0.50))  # Positive SA memory baseline
+  init_theta7 <- log(0.01)
+
+  theta_init <- c(init_theta1, init_theta2, init_theta3, init_theta4,
+                  init_theta5, init_theta6, init_theta7)
+
+  fit_try <- tryCatch({
+    optim(
+      par = theta_init,
+      fn = evaluate_penalized_nll,
+      log_rr_ts = log_rr_ts,
+      lambda = lambda,
+      method = "BFGS",
+      hessian = TRUE,
+      control = list(maxit = 10000, trace = 1)
+    )
+  }, error = function(e) { return(NULL) })
+
+  if (is.null(fit_try) || is.infinite(fit_try$value)) {
+    return(list(par = rep(NA, 7), value = Inf, hessian = matrix(NA, 7, 7), convergence = FALSE))
+  }
+
+  return(list(par = fit_try$par, value = fit_try$value,
+              hessian = fit_try$hessian, convergence = (fit_try$convergence == 0)))
+}
+
 get_model_ci <- function(fit_result) {
-  cov_mat_raw <- tryCatch(MASS::ginv(fit_result$hessian), error = function(e) matrix(NA, 10, 10))
+  if (!requireNamespace("numDeriv", quietly = TRUE)) stop("Please install 'numDeriv' for Delta Method standard errors.")
+
+  cov_mat_raw <- tryCatch(MASS::ginv(fit_result$hessian), error = function(e) matrix(NA, 7, 7))
   cov_mat_pd <- tryCatch(as.matrix(Matrix::nearPD(cov_mat_raw, ensureSymmetry = TRUE)$mat),
                          error = function(e) cov_mat_raw)
 
-  std_errs <- sqrt(pmax(diag(cov_mat_pd), 0))
-  param_names <- c("logit_tau_v", "logit_tau_s", "logit_a12_frac", "log_sig1", "log_sig2", "logit_k1", "logit_k2", "logit_k3", "log_sig_eta", "mu_rr")
+  # Define the transformation mapping function identical to the exact model boundaries
+  transform_theta <- function(th) {
+    t_v <- 0.3 + 1.7 * (sin(th[1])^2)
+    rho <- exp(log(5.0) + (log(15.0) - log(5.0)) * (sin(th[2])^2))
+    t_s <- t_v * rho
+    a12_f <- sin(th[3])^2
+    s_v <- exp(th[4])
+    s_s <- exp(th[5])
+    k1_val <- sin(th[6])^2
+    s_e <- exp(th[7])
+    return(c(t_v, t_s, a12_f, s_v, s_s, k1_val, s_e))
+  }
 
-  ci_lower <- fit_result$par - 1.96 * std_errs
-  ci_upper <- fit_result$par + 1.96 * std_errs
+  # Project unbounded point estimates directly into physiological space
+  phys_est <- transform_theta(fit_result$par)
 
-  results_df <- data.frame(Parameter = param_names, Estimate = fit_result$par,
-                           Std_Error = std_errs, CI_Lower = ci_lower, CI_Upper = ci_upper)
-  return(results_df)
+  # Delta Method Execution: J * Sigma * J^T
+  J <- tryCatch(numDeriv::jacobian(transform_theta, fit_result$par), error = function(e) matrix(NA, 7, 7))
+  phys_cov <- J %*% cov_mat_pd %*% t(J)
+
+  # Extract valid projected standard errors
+  phys_se <- sqrt(pmax(diag(phys_cov), 0))
+
+  ci_lower <- phys_est - 1.96 * phys_se
+  ci_upper <- phys_est + 1.96 * phys_se
+
+  param_names <- c("tau_v", "tau_s", "a12_fraction", "sigma_stat_v", "sigma_stat_s", "k1", "sigma_stat_eta")
+
+  return(data.frame(Parameter = param_names, Estimate = phys_est,
+                    Std_Error = phys_se, CI_Lower = ci_lower, CI_Upper = ci_upper))
 }
 
-#' Generate a Bounded Physiological Interpretation Report
+#' Parse and Untransform Optimized Parameters into Physical Units
 report_fit <- function(fit_result) {
+  if (all(is.na(fit_result$par))) return(data.frame(Message = "Optimization Failed"))
 
-  raw_ci <- get_model_ci(fit_result)
-  get_val <- function(param) raw_ci$Estimate[raw_ci$Parameter == param]
+  # get_model_ci now contains Delta-mapped physiological estimates and CIs
+  phys_ci <- get_model_ci(fit_result)
 
-  tau_v_est <- 0.5 + 3.5 * plogis(get_val("logit_tau_v"))
-  tau_s_est <- 8.0 + 27.0 * plogis(get_val("logit_tau_s"))
-
-  mu_0_est_ms <- exp(get_val("mu_rr"))
-  sig_v_frac <- exp(get_val("log_sig1"))
-  sig_s_frac <- exp(get_val("log_sig2"))
-
-  k1_est <- 2 * plogis(get_val("logit_k1")) - 1
-  k2_est <- 2 * plogis(get_val("logit_k2")) - 1
-  k3_est <- 2 * plogis(get_val("logit_k3")) - 1
-  sig_eta_frac <- exp(get_val("log_sig_eta"))
-
-  report <- data.frame(
-    Parameter_Symbol = c("tau_v", "tau_s", "sigma_v", "sigma_s", "k1", "k2", "k3", "sigma_eta", "mu_0"),
-    Interpretation = c(
-      "Vagal Recovery Time Constant", "Sympathetic Recovery Time Constant",
-      "Vagal Process Noise (Fractional)", "Sympathetic Process Noise (Fractional)",
-      "SA Memory PACF 1 (Lag 1)", "SA Memory PACF 2 (Lag 2)", "SA Memory PACF 3 (Lag 3)",
-      "SA Memory Driving Noise (Broadband)", "Intrinsic Pacemaker Baseline"
-    ),
-    Estimate = round(c(tau_v_est, tau_s_est, sig_v_frac, sig_s_frac, k1_est, k2_est, k3_est, sig_eta_frac, mu_0_est_ms), 4),
-    Units = c("Beats", "Beats", "Unitless (%)", "Unitless (%)", "Correlation", "Correlation", "Correlation", "Unitless (%)", "ms")
+  interpretations <- c(
+    "Vagal Recovery (beats)", "Sympathetic Recovery (beats)", "Cross-talk Coupling Fraction",
+    "Vagal Stationary Amplitude", "Sympathetic Stationary Amplitude",
+    "SA Node Memory (AR1)", "SA Node Memory Variance"
   )
-  return(report)
+
+  return(data.frame(
+    Parameter_Symbol = phys_ci$Parameter,
+    Interpretation = interpretations,
+    Estimate = round(phys_ci$Estimate, 4),
+    Std_Error = round(phys_ci$Std_Error, 4),
+    CI_Lower = round(phys_ci$CI_Lower, 4),
+    CI_Upper = round(phys_ci$CI_Upper, 4)
+  ))
 }
+
 
 #' Advanced Autonomic Model Diagnostics and 3D Visualization
 #'
@@ -264,13 +299,17 @@ visualize_autonomic_model <- function(fit_result, rr_ts) {
   log_rr_ts <- log(rr_ts)
   opt_theta <- fit_result$par
 
-  # Extract System Kinetics
-  tau_v <- 0.5 + 3.5 * plogis(opt_theta[1])
-  tau_s <- 8.0 + 27.0 * plogis(opt_theta[2])
-  a11 <- 1 / tau_v
-  a22 <- 1 / tau_s
-  a12 <- sqrt(a11 * a22) * plogis(opt_theta[3])
-  mu_rr_log <- opt_theta[10]
+  # Extract System Kinetics using Log-Ratio mapping
+  tau_v_min <- 0.3; tau_v_max <- 2.0
+  rho_min   <- 5.0; rho_max   <- 15.0
+
+  tau_v   <- tau_v_min + (tau_v_max - tau_v_min) * (sin(opt_theta[1])^2)
+  log_rho <- log(rho_min) + (log(rho_max) - log(rho_min)) * (sin(opt_theta[2])^2)
+  tau_s   <- tau_v * exp(log_rho)
+  a11     <- 1 / tau_v
+  a22     <- 1 / tau_s
+  a12     <- sqrt(a11 * a22) * (sin(opt_theta[3])^2)
+  mu_rr_log <- mean(log_rr_ts)
 
   # Run Exact Kalman Filter
   kf_out <- run_kalman_filter(opt_theta, log_rr_ts, return_states = TRUE)
@@ -288,7 +327,7 @@ visualize_autonomic_model <- function(fit_result, rr_ts) {
   log_rr_pred <- log_rr_ts - innovations
   rr_pred <- exp(log_rr_pred)
 
-  H <- matrix(c(1, -1, 1, 0, 0), nrow = 1)
+  H <- matrix(c(1, -1, 1), nrow = 1)
   log_rr_rec <- as.numeric(H %*% states) + mu_rr_log
   rr_rec <- exp(log_rr_rec)
 
@@ -343,7 +382,7 @@ visualize_autonomic_model <- function(fit_result, rr_ts) {
     Power = c(sp_obs$spec, sp_rec$spec),
     Signal = factor(rep(c("Observed", "SDE Reconstructed"), c(length(sp_obs$freq), length(sp_rec$freq))))
   )
-  p_psd <- ggplot(df_psd, aes(x = Freq, y = Power, color = Signal, linetype = Signal)) +
+  p_psd <- ggplot(df_psd, aes(x = Freq, y = Power, color = Signal)) +
     geom_line(linewidth = 0.8, alpha = 0.8) +
     scale_y_log10() +
     scale_color_manual(values = c("Observed" = "gray70", "SDE Reconstructed" = "#8E44AD")) +
@@ -361,9 +400,29 @@ visualize_autonomic_model <- function(fit_result, rr_ts) {
   x1_seq <- seq(min(states[1, ]) - margin_x1, max(states[1, ]) + margin_x1, length.out = 45)
   x2_seq <- seq(min(states[2, ]) - margin_x2, max(states[2, ]) + margin_x2, length.out = 45)
 
-  U_mat <- outer(x1_seq, x2_seq, FUN = function(x1, x2) {
-    0.5 * a11 * x1^2 + 0.5 * a22 * x2^2 + a12 * x1 * x2
+  sigma_stat_v_vis <- exp(opt_theta[4])
+  sigma_stat_s_vis <- exp(opt_theta[5])
+  Sigma_stat_vis <- diag(c(sigma_stat_v_vis^2, sigma_stat_s_vis^2))
+  A_2x2_vis <- matrix(c(-a11, -a12, -a12, -a22), nrow = 2, byrow = TRUE)
+  Sigma_c_vis <- -(A_2x2_vis %*% Sigma_stat_vis + Sigma_stat_vis %*% t(A_2x2_vis))
+
+  Z_vis   <- rbind(cbind(-A_2x2_vis, Sigma_c_vis), cbind(matrix(0,2,2), t(A_2x2_vis)))
+  expZ_v  <- expm::expm(Z_vis)
+  F_vis   <- t(expZ_v[3:4, 3:4])
+  Q_vis   <- F_vis %*% expZ_v[1:2, 3:4]; Q_vis <- (Q_vis + t(Q_vis)) / 2
+
+  P_stat_v <- tryCatch(
+    matrix(solve(diag(4) - kronecker(F_vis, F_vis), as.vector(Q_vis)), 2, 2),
+    error = function(e) matrix(MASS::ginv(diag(4) - kronecker(F_vis, F_vis)) %*% as.vector(Q_vis), 2, 2)
+  )
+  P_stat_v <- (P_stat_v + t(P_stat_v)) / 2
+  Pi       <- tryCatch(solve(P_stat_v), error = function(e) MASS::ginv(P_stat_v))
+
+  U_mat  <- outer(x1_seq, x2_seq, FUN = function(x1, x2) {
+    Pi[1,1]*x1^2/2 + Pi[2,2]*x2^2/2 + Pi[1,2]*x1*x2
   })
+  U_traj <- (Pi[1,1]*states[1,]^2 + Pi[2,2]*states[2,]^2 +
+               2*Pi[1,2]*states[1,]*states[2,]) / 2
 
   # Capture Base R plotting system into a patchwork grid element
   p_3d <- wrap_elements(panel = ~{
@@ -381,24 +440,18 @@ visualize_autonomic_model <- function(fit_result, rr_ts) {
                   main = "E. 3D Phase-Space Energy Attractor",
                   font.main = 2, cex.main = 1.1)
 
-    # Extract patient trajectory
-    U_traj <- 0.5 * a11 * states[1,]^2 + 0.5 * a22 * states[2,]^2 + a12 * states[1,] * states[2,]
-
     # Float the trajectory slightly above the surface to prevent Z-fighting overlap
     z_float <- U_traj + max(U_mat) * 0.02
 
     # Project 3D coordinates onto the 2D plane via the transformation matrix (pmat)
-    lines(trans3d(states[1,], states[2,], z_float, pmat = pmat), col = "#2C3E50", lwd = 2)
-    lines(trans3d(states[1,], states[2,], z_float, pmat = pmat), col = "#E74C3C", lwd = 1)
+    lines(trans3d(states[1,], states[2,], z_float, pmat = pmat), col = "#2C3E50", lwd = 1)
+    lines(trans3d(states[1,], states[2,], z_float, pmat = pmat), col = "#E74C3C", lwd = 0.5)
   })
 
   # =========================================================================
   # ASSEMBLE DASHBOARD
   # =========================================================================
 
-  # Design forces the Time Series and States to take 3 columns,
-  # while Scatter and PSD take 1 column.
-  # The 3D plot takes all 4 columns at the bottom.
   layout <- "
   AABB
   CCDD
@@ -412,58 +465,141 @@ visualize_autonomic_model <- function(fit_result, rr_ts) {
   return(dashboard)
 }
 
-#' Elegant ggplot2 Diagnostic Dashboard (Log-Linear Fixed)
+#' Advanced State-Space Filter Diagnostics and Residual Analysis
+#'
+#' @param fit_result The optimized model object returned by fit_autonomic_model()
+#' @param rr_ts The numeric vector of the original observed RR intervals
+#' @return A single patchwork object containing the 5-panel diagnostic dashboard.
 diagnose_autonomic_model <- function(fit_result, rr_ts) {
+
+  if (!requireNamespace("patchwork", quietly = TRUE)) stop("Please install 'patchwork'")
   require(ggplot2)
-  require(gridExtra)
+  require(patchwork)
 
   log_rr_ts <- log(rr_ts)
-
   opt_theta <- fit_result$par
+
+  # 1. Run Exact Kalman Filter to Extract Innovations
   kf_out <- run_kalman_filter(opt_theta, log_rr_ts, return_states = TRUE)
 
-  innovations <- kf_out$innovations[-1]
+  # Remove the first beat (t=1) as it represents the unconditioned prior
+  raw_innovations <- kf_out$innovations[-1]
 
-  df_res <- data.frame(Time = 1:length(innovations), Innovation = innovations)
+  # Standardize the innovations for normalized statistical evaluation
+  std_res <- as.numeric(scale(raw_innovations))
+  time_steps <- 1:length(std_res)
 
-  p1 <- ggplot(df_res, aes(x = Time, y = Innovation)) +
-    geom_line(color = "gray40", linewidth = 0.5, alpha = 0.8) +
-    geom_hline(yintercept = 0, color = "#D85A30", linetype = "dashed", linewidth = 0.8) +
-    theme_classic() + labs(title = "A. Innovation Time Series", x = "Beat Number", y = "Error (Fractional)")
+  df_res <- data.frame(Time = time_steps, Residual = std_res)
 
-  p2 <- ggplot(df_res, aes(sample = Innovation)) +
-    stat_qq(color = "#378ADD", alpha = 0.6, size = 1.5) +
-    stat_qq_line(color = "#D85A30", linetype = "dashed", linewidth = 0.8) +
-    theme_classic() + labs(title = "B. Q-Q Plot", x = "Theoretical", y = "Sample")
+  # =========================================================================
+  # A. STANDARDIZED RESIDUALS TIME SERIES
+  # =========================================================================
+  # Evaluates homoscedasticity and detects isolated outliers or regime shifts
+  p_time <- ggplot(df_res, aes(x = Time, y = Residual)) +
+    geom_hline(yintercept = 0, color = "#2C3E50", linewidth = 0.8) +
+    geom_hline(yintercept = c(-2, 2), color = "#E74C3C", linetype = "dashed", alpha = 0.7) +
+    geom_hline(yintercept = c(-3, 3), color = "#E74C3C", linetype = "dotted", alpha = 0.5) +
+    geom_line(color = "#7F8C8D", linewidth = 0.5, alpha = 0.8) +
+    theme_classic(base_size = 11) +
+    labs(title = "A. Standardized Filter Innovations", x = "Beat Sequence", y = "Standardized Error") +
+    theme(plot.title = element_text(face = "bold"))
 
-  acf_res <- acf(innovations, plot = FALSE)
+  # =========================================================================
+  # B. RESIDUAL DISTRIBUTION
+  # =========================================================================
+  # Evaluates the Gaussian noise assumption via Kernel Density vs. N(0,1)
+  p_dist <- ggplot(df_res, aes(x = Residual)) +
+    geom_histogram(aes(y = after_stat(density)), bins = 40, fill = "#BDC3C7", color = "white", alpha = 0.7) +
+    geom_density(color = "#2980B9", linewidth = 1) +
+    stat_function(fun = dnorm, args = list(mean = 0, sd = 1),
+                  color = "#E74C3C", linetype = "dashed", linewidth = 0.8) +
+    theme_classic(base_size = 11) +
+    labs(title = "B. Innovation Distribution", x = "Standardized Error", y = "Density") +
+    theme(plot.title = element_text(face = "bold"))
+
+  # =========================================================================
+  # C. NORMAL Q-Q PLOT
+  # =========================================================================
+  # Evaluates tail behaviors and skewness
+  p_qq <- ggplot(df_res, aes(sample = Residual)) +
+    stat_qq(color = "#34495E", alpha = 0.4, size = 1.5) +
+    stat_qq_line(color = "#E74C3C", linewidth = 1, linetype = "dashed") +
+    theme_classic(base_size = 11) +
+    labs(title = "C. Normal Q-Q Plot", x = "Theoretical Quantiles", y = "Sample Quantiles") +
+    theme(plot.title = element_text(face = "bold"))
+
+  # =========================================================================
+  # D. AUTOCORRELATION FUNCTION (ACF)
+  # =========================================================================
+  # Evaluates structural leakage (unmodeled dynamics remaining in the error)
+  acf_res <- acf(std_res, lag.max = 20, plot = FALSE)
   df_acf <- data.frame(Lag = acf_res$lag[-1], ACF = acf_res$acf[-1])
-  ci_acf <- qnorm((1 + 0.95)/2) / sqrt(length(innovations))
+  ci_acf <- qnorm((1 + 0.95)/2) / sqrt(length(std_res))
 
-  p3 <- ggplot(df_acf, aes(x = Lag, y = ACF)) +
-    geom_segment(aes(xend = Lag, yend = 0), color = "gray50", linewidth = 1) +
-    geom_point(color = "#378ADD", size = 2) +
-    geom_hline(yintercept = 0, color = "black") +
-    geom_hline(yintercept = c(-ci_acf, ci_acf), color = "#D85A30", linetype = "dashed") +
-    theme_classic() + labs(title = "C. Autocorrelation Function", x = "Lag", y = "ACF")
+  p_acf <- ggplot(df_acf, aes(x = Lag, y = ACF)) +
+    geom_segment(aes(xend = Lag, yend = 0), color = "#2C3E50", linewidth = 1.5, alpha = 0.8) +
+    geom_hline(yintercept = 0, color = "black", linewidth = 0.5) +
+    geom_hline(yintercept = c(-ci_acf, ci_acf), color = "#E74C3C", linetype = "dashed") +
+    theme_classic(base_size = 11) +
+    labs(title = "D. Autocorrelation Function (ACF)", x = "Lag (Beats)", y = "ACF") +
+    theme(plot.title = element_text(face = "bold"))
 
-  gridExtra::grid.arrange(p1, p2, p3, layout_matrix = rbind(c(1, 1), c(2, 3)))
+  # =========================================================================
+  # E. LJUNG-BOX TEST INDEPENDENCE TRAJECTORY
+  # =========================================================================
+  lags <- 11:30
+  p_vals <- sapply(lags, function(l) {
+    tryCatch({
+      Box.test(std_res, lag = l, type = "Ljung-Box", fitdf = length(opt_theta))$p.value
+    }, error = function(e) NA)
+  })
+
+  df_lb <- data.frame(Lag = lags, P_Value = p_vals)
+
+  p_lb <- ggplot(df_lb, aes(x = Lag, y = P_Value)) +
+    geom_point(color = "#2980B9", size = 2) +
+    geom_line(color = "#2980B9", alpha = 0.5) +
+    geom_hline(yintercept = 0.05, color = "#E74C3C", linetype = "dashed", linewidth = 0.8) +
+    scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.25)) +
+    theme_classic(base_size = 11) +
+    labs(title = "E. Ljung-Box Independence Test", x = "Lag (Beats)", y = "P-Value") +
+    theme(plot.title = element_text(face = "bold"))
+
+  # =========================================================================
+  # ASSEMBLE DASHBOARD
+  # =========================================================================
+
+  # Design: Time Series spans the entire top row.
+  # Distribution and Q-Q share the middle row.
+  # Correlogram and Hypothesis Tests share the bottom row.
+  layout <- "
+  AAAAAA
+  BBBCCC
+  DDDEEE
+  "
+
+  dashboard <- p_time + p_dist + p_qq + p_acf + p_lb +
+    plot_layout(design = layout)
+
+  return(dashboard)
 }
 
 #' Evaluate Goodness-of-Fit Metrics (Log-Linear Fixed)
 evaluate_single_fit <- function(fit_result, rr_ts) {
-  converged <- ifelse(fit_result$convergence == 0, TRUE, FALSE)
+  # FIX: Directly pass the boolean flag from the fit_result object
+  converged <- fit_result$convergence
   nll <- fit_result$value
 
-  # AIC correctly scales dynamically with the 10 parameter length
+  # AIC correctly scales dynamically with the 7 parameter length
   aic <- 2 * length(fit_result$par) + 2 * nll
 
   log_rr_ts <- log(rr_ts)
   kf_out <- suppressWarnings(run_kalman_filter(fit_result$par, log_rr_ts, return_states = TRUE))
   innovations <- kf_out$innovations[-1]
 
+  # Evaluated at lag 20 to ensure valid degrees of freedom against 7 estimated parameters
   lb_test <- tryCatch(
-    Box.test(innovations, lag = 5, type = "Ljung-Box"),
+    Box.test(innovations, lag = 20, type = "Ljung-Box", fitdf = length(fit_result$par)),
     error = function(e) list(statistic = NA, p.value = NA)
   )
 
