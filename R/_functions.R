@@ -1,665 +1,361 @@
-#' Run Kalman Filter with Exact Van Loan Discretization and Joseph Stabilized Update
-#'
-#' @param theta Numeric vector of 7 transformed parameters.
-#' @param log_rr_ts Numeric vector of log-transformed RR intervals.
-#' @param dt Time step (e.g., 1 for beat-to-beat).
-#' @param return_states Boolean; if TRUE, returns state variables and innovations.
-run_kalman_filter <- function(theta, log_rr_ts, dt = 1, return_states = FALSE) {
+# ==============================================================================
+# HRV STATE-SPACE MODEL: EXACT PHASE-DOMAIN IPFM WITH ANALYTICAL MARGINALIZATION
+# ==============================================================================
+# Implements a linear-Gaussian augmented Kalman Filter for unevenly sampled
+# RR intervals. It uses Exact GLS Marginalization for the baseline drift and
+# global system volatility, and deterministic spectral anchoring for branch ratios.
+# ==============================================================================
 
-  # ==============================================================================
-  # 1. Autonomic Kinetics (7-Parameter Architecture)
-  # ==============================================================================
-  tau_v_min <- 0.3; tau_v_max <- 2.0
-  rho_min <- 5.0; rho_max <- 15.0
+if (!require(ggplot2)) install.packages("ggplot2")
+if (!require(patchwork)) install.packages("patchwork")
+if (!require(expm)) install.packages("expm")
 
-  # Hyperspherical mapping replaces plogis
-  tau_v <- tau_v_min + (tau_v_max - tau_v_min) * (sin(theta[1])^2)
+library(ggplot2)
+library(patchwork)
+library(expm)
 
-  log_rho <- log(rho_min) + (log(rho_max) - log(rho_min)) * (sin(theta[2])^2)
-  tau_s <- tau_v * exp(log_rho)
+# ==============================================================================
+# 1. SPECTRAL INITIALIZATION (Priors & Parseval Anchoring)
+# ==============================================================================
+extract_spectral_priors <- function(dy) {
+  cat("Extracting spectral priors and Parseval energy ratio...\n")
+  time_cum <- cumsum(dy)
+  hr_hz <- 1 / dy
 
-  a11 <- 1 / tau_v
-  a22 <- 1 / tau_s
-  max_a12 <- sqrt(a11 * a22)
-  a12 <- max_a12 * (sin(theta[3])^2)
+  fs <- 4
+  t_grid <- seq(min(time_cum), max(time_cum), by = 1/fs)
+  hr_interp <- spline(time_cum, hr_hz, xout = t_grid)$y
 
-  sigma_stat_v <- exp(theta[4])
-  sigma_stat_s <- exp(theta[5])
+  spec <- spectrum(hr_interp, plot = FALSE, spans = c(3, 5))
+  freqs <- spec$freq * fs
+  power <- spec$spec
 
-  # 2. Intrinsic SA Node Memory (Strictly Positive AR1)
-  k1 <- (sin(theta[6])^2)
+  # Approximate power in LF and HF bands
+  lf_idx <- which(freqs >= 0.04 & freqs < 0.15)
+  hf_idx <- which(freqs >= 0.15 & freqs <= 0.40)
 
-  # AR Variance Bounding: Parameterize stationary variance, derive driving noise conditionally
-  sigma_stat_eta <- exp(theta[7])
-  sig_eta <- sigma_stat_eta * sqrt(1 - k1^2)
+  p_lf <- sum(power[lf_idx])
+  p_hf <- sum(power[hf_idx])
 
-  # Removing mu_rr from optimization
-  mu_rr <- mean(log_rr_ts)
-  N <- length(log_rr_ts)
+  energy_ratio <- p_hf / p_lf
+  cat(sprintf("Spectral Energy Ratio (HF/LF): %.4f\n", energy_ratio))
 
-  # ==============================================================================
-  # 3. EXACT DISCRETIZATION VIA VAN LOAN'S METHOD
-  # ==============================================================================
-  A_2x2 <- matrix(c(-a11, -a12, -a12, -a22), nrow = 2, byrow = TRUE)
-
-  # Stationary Covariance Reparameterization: Solve continuous Lyapunov algebraically
-  Sigma_stat <- matrix(c(sigma_stat_v^2, 0, 0, sigma_stat_s^2), nrow = 2, ncol = 2)
-  Sigma_c <- -(A_2x2 %*% Sigma_stat + Sigma_stat %*% t(A_2x2))
-
-  if (any(!is.finite(A_2x2)) || any(!is.finite(Sigma_c))) {
-    if (return_states) stop("Filter diverged: Infinite matrix entries explored.")
-    return(1e9)
-  }
-
-  # PSD Check for algebraically derived continuous noise
-  if (any(eigen(Sigma_c, symmetric = TRUE)$values < 0)) {
-    if (return_states) stop("Filter diverged: Continuous process noise not PSD.")
-    return(1e9)
-  }
-
-  Z <- rbind(
-    cbind(-A_2x2, Sigma_c),
-    cbind(matrix(0, 2, 2), t(A_2x2))
+  list(
+    nu0_init = mean(hr_hz),
+    energy_ratio = energy_ratio
   )
+}
 
-  expZ <- expm::expm(Z * dt)
-  F_2x2 <- t(expZ[3:4, 3:4])
-  Q_2x2 <- F_2x2 %*% expZ[1:2, 3:4]
-  Q_2x2 <- (Q_2x2 + t(Q_2x2)) / 2
+# ==============================================================================
+# 2. ROBUST OU INTEGRALS HELPER (Solves Catastrophic Cancellation)
+# ==============================================================================
+.compute_ou_block <- function(k, dt, sig2) {
+  x <- k * dt
 
-  # ==============================================================================
-  # 3-DIMENSIONAL STATE MATRICES SETUP
-  # ==============================================================================
-  F_mat <- matrix(0, nrow = 3, ncol = 3)
-  F_mat[1:2, 1:2] <- F_2x2
-  F_mat[3, 3] <- k1
-
-  Q <- matrix(0, nrow = 3, ncol = 3)
-  Q[1:2, 1:2] <- Q_2x2
-  Q[3, 3] <- sig_eta^2
-
-  # Observation maps directly to [Vagal, Sympathetic, SA_Memory]
-  H <- matrix(c(1, -1, 1), nrow = 1)
-
-  R <- 1e-5
-  R_mat <- matrix(R, 1, 1)
-
-  x_hat <- matrix(0, nrow = 3, ncol = N)
-  P_var <- matrix(0, nrow = 3, ncol = N)
-  innovations <- numeric(N)
-
-  # ==============================================================================
-  # 4. EXACT STATIONARY INITIALIZATION (Discrete Lyapunov Equation)
-  # ==============================================================================
-  I_9 <- diag(9)
-  F_kron_F <- kronecker(F_mat, F_mat)
-  vec_Q <- as.vector(Q)
-
-  P_init <- tryCatch({
-    matrix(solve(I_9 - F_kron_F, vec_Q), 3, 3)
-  }, error = function(e) {
-    matrix(MASS::ginv(I_9 - F_kron_F) %*% vec_Q, 3, 3)
-  })
-
-  # Enforce strict symmetry and Positive Definiteness
-  P_init <- (P_init + t(P_init)) / 2
-  eigs <- eigen(P_init, symmetric = TRUE, only.values = TRUE)$values
-  if (any(eigs < 1e-10)) {
-    P_init <- as.matrix(Matrix::nearPD(P_init, ensureSymmetry = TRUE)$mat)
+  if (x < 1e-3) {
+    # Exact Taylor series limits to prevent floating point zeros
+    phi_int <- dt - (k * dt^2)/2 + (k^2 * dt^3)/6
+    q11 <- sig2 * (dt - k * dt^2 + (2 * k^2 * dt^3)/3)
+    q13 <- sig2 * ((dt^2)/2 - (k * dt^3)/2 + (7 * k^2 * dt^4)/24)
+    q33 <- sig2 * ((dt^3)/3 - (k * dt^4)/4 + (7 * k^2 * dt^5)/60)
+  } else {
+    # Standard closed-form OU continuous integration
+    phi_int <- (1 - exp(-x)) / k
+    q11 <- sig2 * (1 - exp(-2 * x)) / (2 * k)
+    q13 <- sig2 * (1 - 2*exp(-x) + exp(-2*x)) / (2 * k^2)
+    q33 <- sig2 * (2*x - 3 + 4*exp(-x) - exp(-2*x)) / (2 * k^3)
   }
 
-  x_pred <- matrix(0, nrow = 3, ncol = 1)
-  P_pred <- P_init
+  list(phi_int = phi_int, q11 = q11, q13 = q13, q33 = q33)
+}
 
-  log_likelihood <- 0
-  I_3 <- diag(3)
+# ==============================================================================
+# 3. EXACT DUAL-FILTER GLS ENGINE
+# ==============================================================================
+run_gls_filter <- function(dy, kp, ks, lp, lR) {
+  N <- length(dy)
+  X0 <- matrix(0, 4, 1); Xv <- matrix(0, 4, 1)
+  P  <- diag(c(1, 1, 0, 0)); H  <- matrix(c(0, 0, -1, 1), 1, 4)
+  S_vec <- numeric(N); v0_vec <- numeric(N); vv_vec <- numeric(N)
 
-  # ==============================================================================
-  # 5. KALMAN FILTER LOOP
-  # ==============================================================================
-  for (t in 1:N) {
+  # Storage for state reconstruction
+  X0_store <- matrix(0, N, 4); Xv_store <- matrix(0, N, 4)
+  Phi <- matrix(0, 4, 4); Q <- matrix(0, 4, 4)
 
-    y_pred <- (H %*% x_pred)[1,1] + mu_rr
-    y_obs <- log_rr_ts[t]
+  for(k in 1:N) {
+    dt <- dy[k]
 
-    y_err <- y_obs - y_pred
-    innovations[t] <- y_err
+    blk_p <- .compute_ou_block(kp, dt, lp)
+    blk_s <- .compute_ou_block(ks, dt, 1.0)
+    Phi[1,1] <- exp(-kp * dt); Phi[3,1] <- blk_p$phi_int
+    Phi[2,2] <- exp(-ks * dt); Phi[4,2] <- blk_s$phi_int
+    Q[1,1] <- blk_p$q11; Q[1,3] <- blk_p$q13; Q[3,1] <- blk_p$q13; Q[3,3] <- blk_p$q33
+    Q[2,2] <- blk_s$q11; Q[2,4] <- blk_s$q13; Q[4,2] <- blk_s$q13; Q[4,4] <- blk_s$q33
 
-    S <- (H %*% P_pred %*% t(H))[1,1] + R
+    X0_pred <- Phi %*% X0; Xv_pred <- Phi %*% Xv
+    P_pred  <- Phi %*% P %*% t(Phi) + Q
 
-    if (!is.finite(S) || S < 1e-9) {
-      if (return_states) stop("Filter diverged.")
-      return(1e9)
-    }
-
+    S <- as.numeric(H %*% P_pred %*% t(H) + lR * dt)
+    S <- max(S, 1e-12) # Numerical floor
     K <- P_pred %*% t(H) / S
-    x_hat[, t] <- x_pred + K * y_err
 
-    IKH <- I_3 - K %*% H
-    P <- IKH %*% P_pred %*% t(IKH) + K %*% R_mat %*% t(K)
+    v0 <- 1.0 - as.numeric(H %*% X0_pred)
+    vv <- dt  - as.numeric(H %*% Xv_pred)
+
+    X0 <- X0_pred + K * v0; Xv <- Xv_pred + K * vv
+    I_KH <- diag(4) - K %*% H
+    P <- I_KH %*% P_pred %*% t(I_KH) + K %*% (lR * dt) %*% t(K)
     P <- (P + t(P)) / 2
 
-    P_var[, t] <- diag(P)
+    X0_store[k, ] <- as.numeric(X0)
+    Xv_store[k, ] <- as.numeric(Xv)
 
-    log_likelihood <- log_likelihood - 0.5 * (log(2 * pi * S) + (y_err^2) / S)
+    # EXACT BOUNDARY RESET
+    X0[3:4,] <- 0; Xv[3:4,] <- 0
+    P[3:4, ] <- 0; P[, 3:4] <- 0
 
-    if (t < N) {
-      x_pred <- F_mat %*% x_hat[, t]
-      P_pred <- F_mat %*% P %*% t(F_mat) + Q
-    }
+    S_vec[k] <- S; v0_vec[k] <- v0; vv_vec[k] <- vv
   }
 
-  nll <- -log_likelihood
-  if (!is.finite(nll)) return(1e9)
+  # Analytical Marginalizations
+  nu0_hat  <- sum(v0_vec * vv_vec / S_vec) / sum((vv_vec^2) / S_vec)
+  v_final  <- v0_vec - nu0_hat * vv_vec
+  sig2_hat <- max(mean(v_final^2 / S_vec), 1e-12)
+  LL_star  <- -0.5 * sum(log(S_vec)) - (N / 2) * log(sig2_hat)
 
-  if (return_states) {
-    return(list(x_hat = x_hat, P_var = P_var, innovations = innovations))
-  } else {
-    return(nll)
-  }
+  # Reconstruct exact biological states by linear superposition (scaled to physics)
+  states_final <- (X0_store - nu0_hat * Xv_store)
+  std_innov <- v_final / sqrt(S_vec * sig2_hat)
+
+  list(LL_star = LL_star, nu0 = nu0_hat, sig2 = sig2_hat,
+       states = states_final, std_innov = std_innov)
 }
 
-#' L2 Penalized Negative Log-Likelihood Objective Function
-#'
-#' Evaluates the exact linear Gaussian state-space model and applies
-#' a smooth L2 (Ridge) regularization penalty to targeted auxiliary parameters.
-#'
-#' @param theta Numeric vector of 7 unconstrained optimization parameters.
-#' @param log_rr_ts Numeric vector of the log-transformed RR interval time series.
-#' @param lambda Scalar hyperparameter dictating the severity of the L2 shrinkage.
-#' @return The L2 penalized negative log-likelihood scalar.
-evaluate_penalized_nll <- function(theta, log_rr_ts, lambda = 0) {
-  base_nll <- run_kalman_filter(theta, log_rr_ts, dt = 1, return_states = FALSE)
+objective_map_3d <- function(theta, dy, energy_ratio) {
+  ks <- exp(theta[1])
+  kp <- ks + exp(theta[2])
+  lR <- exp(theta[3])
+  lp <- energy_ratio * (kp / ks)
 
-  if (is.infinite(base_nll) || base_nll == 1e9) return(1e9)
+  res <- run_gls_filter(dy, kp, ks, lp, lR)
 
-  # Direct quadratic penalty on the unbounded parameter space
-  l2_penalty <- lambda * (theta[3]^2)
+  pen_ks <- (2 - 1) * log(ks) - 20 * ks
+  pen_kp <- (2 - 1) * log(kp) - 2 * kp
+  pen_lR <- -(1.1 + 1) * log(lR) - (1e-4) / lR
 
-  return(base_nll + l2_penalty)
+  return(-(res$LL_star + pen_ks + pen_kp + pen_lR))
 }
 
-#' Fit Adaptive Autonomic State-Space Model (Deterministic Initialization)
-#'
-#' Executes a single deep numerical minimization on the penalized log-likelihood surface
-#' using physiologically anchored starting coordinates, bypassing global LHS exploration.
-#'
-#' @param rr_ts Numeric vector of the raw RR interval time series.
-#' @param lambda Scalar hyperparameter dictating the L2 (Ridge) shrinkage severity.
-#' @return A fitted model object containing the optimal parameter vector and the exact Hessian.
-fit_autonomic_model <- function(rr_ts, lambda = 0) {
-  log_rr_ts <- log(rr_ts)
+# ==============================================================================
+# 4. OPTIMIZATION ROUTINE (Returns Full Extracted State Geometry)
+# ==============================================================================
+fit_model <- function(dy) {
+  priors <- extract_spectral_priors(dy)
+  theta_init <- c(log(0.05), log(0.35 - 0.05), log(0.001))
 
-  # 7-Parameter Deterministic Anchoring (Arcsine Square Root transformations)
-  init_theta1 <- asin(sqrt((1.0 - 0.3) / (2.0 - 0.3)))
-  init_theta2 <- asin(sqrt((log(10.0) - log(5.0)) / (log(15.0) - log(5.0)))) # Anchored at rho = 10
-  init_theta3 <- asin(sqrt(0.10))
-  init_theta4 <- log(0.05)
-  init_theta5 <- log(0.05)
-  init_theta6 <- asin(sqrt(0.50))  # Positive SA memory baseline
-  init_theta7 <- log(0.01)
+  cat("\nRunning 3D BFGS Optimization with MAP Penalties...\n")
+  opt_res <- optim(par = theta_init, fn = objective_map_3d, dy = dy,
+                   energy_ratio = priors$energy_ratio, method = "BFGS",
+                   control = list(maxit = 500, trace = 1))
 
-  theta_init <- c(init_theta1, init_theta2, init_theta3, init_theta4,
-                  init_theta5, init_theta6, init_theta7)
+  # Extract Final Parameters
+  ks_opt <- exp(opt_res$par[1])
+  kp_opt <- ks_opt + exp(opt_res$par[2])
+  lR_opt <- exp(opt_res$par[3])
+  lp_opt <- priors$energy_ratio * (kp_opt / ks_opt)
 
-  fit_try <- tryCatch({
-    optim(
-      par = theta_init,
-      fn = evaluate_penalized_nll,
-      log_rr_ts = log_rr_ts,
-      lambda = lambda,
-      method = "BFGS",
-      hessian = TRUE,
-      control = list(maxit = 10000, trace = 1)
-    )
-  }, error = function(e) { return(NULL) })
+  # Final pass to extract states & innovations
+  final_res <- run_gls_filter(dy, kp_opt, ks_opt, lp_opt, lR_opt)
 
-  if (is.null(fit_try) || is.infinite(fit_try$value)) {
-    return(list(par = rep(NA, 7), value = Inf, hessian = matrix(NA, 7, 7), convergence = FALSE))
-  }
-
-  return(list(par = fit_try$par, value = fit_try$value,
-              hessian = fit_try$hessian, convergence = (fit_try$convergence == 0)))
-}
-
-get_model_ci <- function(fit_result) {
-  if (!requireNamespace("numDeriv", quietly = TRUE)) stop("Please install 'numDeriv' for Delta Method standard errors.")
-
-  cov_mat_raw <- tryCatch(MASS::ginv(fit_result$hessian), error = function(e) matrix(NA, 7, 7))
-  cov_mat_pd <- tryCatch(as.matrix(Matrix::nearPD(cov_mat_raw, ensureSymmetry = TRUE)$mat),
-                         error = function(e) cov_mat_raw)
-
-  # Define the transformation mapping function identical to the exact model boundaries
-  transform_theta <- function(th) {
-    t_v <- 0.3 + 1.7 * (sin(th[1])^2)
-    rho <- exp(log(5.0) + (log(15.0) - log(5.0)) * (sin(th[2])^2))
-    t_s <- t_v * rho
-    a12_f <- sin(th[3])^2
-    s_v <- exp(th[4])
-    s_s <- exp(th[5])
-    k1_val <- sin(th[6])^2
-    s_e <- exp(th[7])
-    return(c(t_v, t_s, a12_f, s_v, s_s, k1_val, s_e))
-  }
-
-  # Project unbounded point estimates directly into physiological space
-  phys_est <- transform_theta(fit_result$par)
-
-  # Delta Method Execution: J * Sigma * J^T
-  J <- tryCatch(numDeriv::jacobian(transform_theta, fit_result$par), error = function(e) matrix(NA, 7, 7))
-  phys_cov <- J %*% cov_mat_pd %*% t(J)
-
-  # Extract valid projected standard errors
-  phys_se <- sqrt(pmax(diag(phys_cov), 0))
-
-  ci_lower <- phys_est - 1.96 * phys_se
-  ci_upper <- phys_est + 1.96 * phys_se
-
-  param_names <- c("tau_v", "tau_s", "a12_fraction", "sigma_stat_v", "sigma_stat_s", "k1", "sigma_stat_eta")
-
-  return(data.frame(Parameter = param_names, Estimate = phys_est,
-                    Std_Error = phys_se, CI_Lower = ci_lower, CI_Upper = ci_upper))
-}
-
-#' Parse and Untransform Optimized Parameters into Physical Units
-report_fit <- function(fit_result) {
-  if (all(is.na(fit_result$par))) return(data.frame(Message = "Optimization Failed"))
-
-  # get_model_ci now contains Delta-mapped physiological estimates and CIs
-  phys_ci <- get_model_ci(fit_result)
-
-  interpretations <- c(
-    "Vagal Recovery (beats)", "Sympathetic Recovery (beats)", "Cross-talk Coupling Fraction",
-    "Vagal Stationary Amplitude", "Sympathetic Stationary Amplitude",
-    "SA Node Memory (AR1)", "SA Node Memory Variance"
-  )
-
-  return(data.frame(
-    Parameter_Symbol = phys_ci$Parameter,
-    Interpretation = interpretations,
-    Estimate = round(phys_ci$Estimate, 4),
-    Std_Error = round(phys_ci$Std_Error, 4),
-    CI_Lower = round(phys_ci$CI_Lower, 4),
-    CI_Upper = round(phys_ci$CI_Upper, 4)
+  return(list(
+    dy = dy, time = cumsum(dy),
+    params = list(
+      ks = ks_opt, kp = kp_opt, lR = lR_opt, lp = lp_opt,
+      nu0 = final_res$nu0, sig2 = final_res$sig2,
+      sig_p = sqrt(lp_opt * final_res$sig2), sig_s = sqrt(final_res$sig2),
+      energy_ratio = priors$energy_ratio
+    ),
+    states = final_res$states,
+    innovations = final_res$std_innov,
+    opt_raw = opt_res
   ))
 }
 
+# ==============================================================================
+# REPORT PARAMETERS (Delta Method for 3D MAP Grid)
+# ==============================================================================
+report_model <- function(fit_obj) {
+  if (!requireNamespace("numDeriv", quietly = TRUE)) install.packages("numDeriv")
+  if (!requireNamespace("MASS", quietly = TRUE)) install.packages("MASS")
 
-#' Advanced Autonomic Model Diagnostics and 3D Visualization
-#'
-#' @param fit_result The optimized model object returned by fit_autonomic_model()
-#' @param rr_ts The numeric vector of the original observed RR intervals
-#' @return A single patchwork object containing the complete 5-panel dashboard.
-visualize_autonomic_model <- function(fit_result, rr_ts) {
+  dy <- fit_obj$dy
+  p <- fit_obj$params
 
-  if (!requireNamespace("patchwork", quietly = TRUE)) stop("Please install 'patchwork'")
-  require(ggplot2)
-  require(patchwork)
+  theta_opt <- c(log(p$ks), log(p$kp - p$ks), log(p$lR))
 
-  log_rr_ts <- log(rr_ts)
-  opt_theta <- fit_result$par
+  cat("Calculating standard errors via Delta Method...\n")
+  hess_precise <- numDeriv::hessian(func = objective_map_3d, x = theta_opt,
+                                    dy = dy, energy_ratio = p$energy_ratio)
+  inv_hess <- tryCatch(MASS::ginv(hess_precise), error = function(e) matrix(NA, 3, 3))
 
-  # Extract System Kinetics using Log-Ratio mapping
-  tau_v_min <- 0.3; tau_v_max <- 2.0
-  rho_min   <- 5.0; rho_max   <- 15.0
+  # Jacobian for Delta Method (ks, kp, lR)
+  J <- matrix(0, nrow = 3, ncol = 3)
+  J[1, 1] <- p$ks
+  J[2, 1] <- p$ks
+  J[2, 2] <- p$kp - p$ks
+  J[3, 3] <- p$lR
 
-  tau_v   <- tau_v_min + (tau_v_max - tau_v_min) * (sin(opt_theta[1])^2)
-  log_rho <- log(rho_min) + (log(rho_max) - log(rho_min)) * (sin(opt_theta[2])^2)
-  tau_s   <- tau_v * exp(log_rho)
-  a11     <- 1 / tau_v
-  a22     <- 1 / tau_s
-  a12     <- sqrt(a11 * a22) * (sin(opt_theta[3])^2)
-  mu_rr_log <- mean(log_rr_ts)
+  cov_physical <- J %*% inv_hess %*% t(J)
+  se_vals <- sqrt(ifelse(diag(cov_physical) < 0, abs(diag(cov_physical)), diag(cov_physical)))
 
-  # Run Exact Kalman Filter
-  kf_out <- run_kalman_filter(opt_theta, log_rr_ts, return_states = TRUE)
-  states <- kf_out$x_hat
-  p_var <- kf_out$P_var
-  innovations <- kf_out$innovations
-
-  time_steps <- 1:length(rr_ts)
-  valid_idx <- 2:length(rr_ts)
-
-  # =========================================================================
-  # SIGNAL RECONSTRUCTION & PREDICTION
-  # =========================================================================
-
-  log_rr_pred <- log_rr_ts - innovations
-  rr_pred <- exp(log_rr_pred)
-
-  H <- matrix(c(1, -1, 1), nrow = 1)
-  log_rr_rec <- as.numeric(H %*% states) + mu_rr_log
-  rr_rec <- exp(log_rr_rec)
-
-  # =========================================================================
-  # GGPLOT2 COMPONENTS
-  # =========================================================================
-
-  df_ts <- data.frame(Time = time_steps, Observed = rr_ts, Predicted = rr_pred)
-  p_ts <- ggplot(df_ts) +
-    geom_line(aes(x = Time, y = Observed, color = "Observed"), linewidth = 0.6, alpha = 0.5) +
-    geom_line(aes(x = Time, y = Predicted, color = "Kalman Predicted"), linewidth = 0.4, alpha = 0.9) +
-    scale_color_manual(values = c("Observed" = "gray50", "Kalman Predicted" = "#E74C3C")) +
-    theme_classic(base_size = 11) +
-    labs(title = "A. Signal Prediction Tracking", x = "Beat Sequence", y = "RR Interval (ms)") +
-    theme(legend.position = "bottom", legend.title = element_blank(),
-          plot.title = element_text(face = "bold"))
-
-  r_squared <- round(cor(rr_ts[valid_idx], rr_pred[valid_idx])^2, 3)
-  df_scatter <- data.frame(Obs = rr_ts[valid_idx], Pred = rr_pred[valid_idx])
-  p_scatter <- ggplot(df_scatter, aes(x = Obs, y = Pred)) +
-    geom_point(color = "#34495E", alpha = 0.3, pch = 16) +
-    geom_abline(slope = 1, intercept = 0, color = "#E74C3C") +
-    annotate("text", x = min(df_scatter$Obs), y = max(df_scatter$Pred),
-             label = paste0("R² = ", r_squared), hjust = 0, vjust = 1, fontface = "bold") +
-    theme_classic(base_size = 11) +
-    labs(title = "B. Prediction Accuracy", x = "Observed RR (ms)", y = "Predicted RR (ms)") +
-    theme(plot.title = element_text(face = "bold"))
-
-  df_states <- data.frame(
-    Time = rep(time_steps, 2),
-    Activity = c(states[1, ], states[2, ]),
-    Lower = c(states[1, ] - 1.96*sqrt(p_var[1,]), states[2, ] - 1.96*sqrt(p_var[2,])),
-    Upper = c(states[1, ] + 1.96*sqrt(p_var[1,]), states[2, ] + 1.96*sqrt(p_var[2,])),
-    Branch = factor(rep(c("Vagal (x1)", "Sympathetic (x2)"), each = length(time_steps)),
-                    levels = c("Vagal (x1)", "Sympathetic (x2)"))
+  results <- data.frame(
+    Parameter = c("Nu_0 (Baseline Drift)", "Sigma_sys (Global Scale)", "Lambda_P (Vagal Ratio)",
+                  "Kappa_S (Symp Resonance)", "Kappa_P (Vagal Resonance)", "Lambda_R (Threshold Ratio)"),
+    Status = c("Profiled (GLS)", "Profiled (GLS)", "Profiled (Spectral)", rep("Estimated via MAP", 3)),
+    Estimate = round(c(p$nu0, sqrt(p$sig2), p$lp, p$ks, p$kp, p$lR), 5),
+    StdError = c(NA, NA, NA, round(se_vals, 5))
   )
-  p_states <- ggplot(df_states, aes(x = Time, y = Activity, color = Branch, fill = Branch)) +
-    geom_hline(yintercept = 0, color = "gray80", linewidth = 1) +
-    geom_ribbon(aes(ymin = Lower, ymax = Upper), alpha = 0.2, color = NA) +
-    geom_line(linewidth = 0.6) +
-    scale_color_manual(values = c("Vagal (x1)" = "#2980B9", "Sympathetic (x2)" = "#D35400")) +
-    scale_fill_manual(values = c("Vagal (x1)" = "#2980B9", "Sympathetic (x2)" = "#D35400")) +
-    theme_classic(base_size = 11) +
-    labs(title = "C. Neural Latent States", x = "Beat Sequence", y = "Amplitude") +
-    theme(legend.position = "bottom", legend.title = element_blank(),
-          plot.title = element_text(face = "bold"))
 
-  sp_obs <- spectrum(rr_ts - mean(rr_ts), plot = FALSE, spans = c(3, 3))
-  sp_rec <- spectrum(rr_rec - mean(rr_rec), plot = FALSE, spans = c(3, 3))
-  df_psd <- data.frame(
-    Freq = c(sp_obs$freq, sp_rec$freq),
-    Power = c(sp_obs$spec, sp_rec$spec),
-    Signal = factor(rep(c("Observed", "SDE Reconstructed"), c(length(sp_obs$freq), length(sp_rec$freq))))
-  )
-  p_psd <- ggplot(df_psd, aes(x = Freq, y = Power, color = Signal)) +
-    geom_line(linewidth = 0.8, alpha = 0.8) +
-    scale_y_log10() +
-    scale_color_manual(values = c("Observed" = "gray70", "SDE Reconstructed" = "#8E44AD")) +
-    theme_classic(base_size = 11) +
-    labs(title = "D. Spectral Preservation", x = "Frequency (Cycles/Beat)", y = "Power (Log Scale)") +
-    theme(legend.position = "bottom", legend.title = element_blank(),
-          plot.title = element_text(face = "bold"))
-
-  # =========================================================================
-  # NATIVE 3D PHASE-SPACE (Wrapped for Patchwork)
-  # =========================================================================
-  margin_x1 <- max(0.05, max(abs(states[1, ])) * 0.2)
-  margin_x2 <- max(0.05, max(abs(states[2, ])) * 0.2)
-
-  x1_seq <- seq(min(states[1, ]) - margin_x1, max(states[1, ]) + margin_x1, length.out = 45)
-  x2_seq <- seq(min(states[2, ]) - margin_x2, max(states[2, ]) + margin_x2, length.out = 45)
-
-  sigma_stat_v_vis <- exp(opt_theta[4])
-  sigma_stat_s_vis <- exp(opt_theta[5])
-  Sigma_stat_vis <- diag(c(sigma_stat_v_vis^2, sigma_stat_s_vis^2))
-  A_2x2_vis <- matrix(c(-a11, -a12, -a12, -a22), nrow = 2, byrow = TRUE)
-  Sigma_c_vis <- -(A_2x2_vis %*% Sigma_stat_vis + Sigma_stat_vis %*% t(A_2x2_vis))
-
-  Z_vis   <- rbind(cbind(-A_2x2_vis, Sigma_c_vis), cbind(matrix(0,2,2), t(A_2x2_vis)))
-  expZ_v  <- expm::expm(Z_vis)
-  F_vis   <- t(expZ_v[3:4, 3:4])
-  Q_vis   <- F_vis %*% expZ_v[1:2, 3:4]; Q_vis <- (Q_vis + t(Q_vis)) / 2
-
-  P_stat_v <- tryCatch(
-    matrix(solve(diag(4) - kronecker(F_vis, F_vis), as.vector(Q_vis)), 2, 2),
-    error = function(e) matrix(MASS::ginv(diag(4) - kronecker(F_vis, F_vis)) %*% as.vector(Q_vis), 2, 2)
-  )
-  P_stat_v <- (P_stat_v + t(P_stat_v)) / 2
-  Pi       <- tryCatch(solve(P_stat_v), error = function(e) MASS::ginv(P_stat_v))
-
-  U_mat  <- outer(x1_seq, x2_seq, FUN = function(x1, x2) {
-    Pi[1,1]*x1^2/2 + Pi[2,2]*x2^2/2 + Pi[1,2]*x1*x2
-  })
-  U_traj <- (Pi[1,1]*states[1,]^2 + Pi[2,2]*states[2,]^2 +
-               2*Pi[1,2]*states[1,]*states[2,]) / 2
-
-  # Capture Base R plotting system into a patchwork grid element
-  p_3d <- wrap_elements(panel = ~{
-    par(mar = c(1, 2, 2, 1))
-
-    # Render the 3D potential energy surface
-    pmat <- persp(x1_seq, x2_seq, U_mat,
-                  theta = 35, phi = 25, expand = 0.6,
-                  col = "#EBF5FB", border = "#34495E", lwd = 0.3,
-                  shade = 0.1,
-                  xlab = "\nVagal State (x1)",
-                  ylab = "\nSympathetic State (x2)",
-                  zlab = "\nEnergy U(x)",
-                  ticktype = "detailed",
-                  main = "E. 3D Phase-Space Energy Attractor",
-                  font.main = 2, cex.main = 1.1)
-
-    # Float the trajectory slightly above the surface to prevent Z-fighting overlap
-    z_float <- U_traj + max(U_mat) * 0.02
-
-    # Project 3D coordinates onto the 2D plane via the transformation matrix (pmat)
-    lines(trans3d(states[1,], states[2,], z_float, pmat = pmat), col = "#2C3E50", lwd = 1)
-    lines(trans3d(states[1,], states[2,], z_float, pmat = pmat), col = "#E74C3C", lwd = 0.5)
-  })
-
-  # =========================================================================
-  # ASSEMBLE DASHBOARD
-  # =========================================================================
-
-  layout <- "
-  AABB
-  CCDD
-  EEEE
-  EEEE
-  "
-
-  dashboard <- p_ts + p_scatter + p_states + p_psd + p_3d +
-    plot_layout(design = layout)
-
-  return(dashboard)
+  cat("===================================================\n")
+  cat(" HRV PHASE-DOMAIN SDE-IPFM FITTING REPORT\n")
+  cat("===================================================\n")
+  print(results, row.names = FALSE)
+  cat("===================================================\n")
 }
 
-#' Advanced State-Space Filter Diagnostics and Residual Analysis
-#'
-#' @param fit_result The optimized model object returned by fit_autonomic_model()
-#' @param rr_ts The numeric vector of the original observed RR intervals
-#' @return A single patchwork object containing the 5-panel diagnostic dashboard.
-diagnose_autonomic_model <- function(fit_result, rr_ts) {
+# ==============================================================================
+# VISUALIZATION (Exact Phase Reconstruction & Topology)
+# ==============================================================================
+visualize_model <- function(fit_obj) {
+  dy <- fit_obj$dy
+  N <- length(dy)
+  time_cum <- fit_obj$time
 
-  if (!requireNamespace("patchwork", quietly = TRUE)) stop("Please install 'patchwork'")
-  require(ggplot2)
-  require(patchwork)
+  # Rate states (for topology and raw tracking)
+  X_p <- fit_obj$states[, 1]
+  X_s <- fit_obj$states[, 2]
 
-  log_rr_ts <- log(rr_ts)
-  opt_theta <- fit_result$par
+  # Phase states (exact accumulated area over the beat)
+  Phase_p <- fit_obj$states[, 3]
+  Phase_s <- fit_obj$states[, 4]
 
-  # 1. Run Exact Kalman Filter to Extract Innovations
-  kf_out <- run_kalman_filter(opt_theta, log_rr_ts, return_states = TRUE)
+  p <- fit_obj$params
 
-  # Remove the first beat (t=1) as it represents the unconditioned prior
-  raw_innovations <- kf_out$innovations[-1]
+  # 1. EXACT PHASE-DOMAIN RECONSTRUCTION
+  # Bypasses all non-linear approximation by using the mathematical inverse
+  # of the IPFM integration: dt = (1.0 + Phase_p - Phase_s) / nu0
+  implied_rr <- (1.0 + Phase_p - Phase_s) / p$nu0
 
-  # Standardize the innovations for normalized statistical evaluation
-  std_res <- as.numeric(scale(raw_innovations))
-  time_steps <- 1:length(std_res)
+  df_fit <- data.frame(Time = time_cum, Observed = dy, Implied = implied_rr)
 
-  df_res <- data.frame(Time = time_steps, Residual = std_res)
+  pA <- ggplot(df_fit, aes(x = Time)) +
+    geom_line(aes(y = Observed, color = "Observed RR"), linewidth = 0.8, alpha = 0.5) +
+    geom_line(aes(y = Implied, color = "Filtered RR"), linewidth = 1) +
+    scale_color_manual(values = c("Observed RR" = "gray50", "Filtered RR" = "darkred")) +
+    labs(title = "Phase-Domain Filtering & Predictive Fit", y = "RR Interval (s)", x = "") +
+    theme_classic() + theme(legend.title = element_blank(), legend.position = "top")
 
-  # =========================================================================
-  # A. STANDARDIZED RESIDUALS TIME SERIES
-  # =========================================================================
-  # Evaluates homoscedasticity and detects isolated outliers or regime shifts
-  p_time <- ggplot(df_res, aes(x = Time, y = Residual)) +
-    geom_hline(yintercept = 0, color = "#2C3E50", linewidth = 0.8) +
-    geom_hline(yintercept = c(-2, 2), color = "#E74C3C", linetype = "dashed", alpha = 0.7) +
-    geom_hline(yintercept = c(-3, 3), color = "#E74C3C", linetype = "dotted", alpha = 0.5) +
-    geom_line(color = "#7F8C8D", linewidth = 0.5, alpha = 0.8) +
-    theme_classic(base_size = 11) +
-    labs(title = "A. Standardized Filter Innovations", x = "Beat Sequence", y = "Standardized Error") +
-    theme(plot.title = element_text(face = "bold"))
-
-  # =========================================================================
-  # B. RESIDUAL DISTRIBUTION
-  # =========================================================================
-  # Evaluates the Gaussian noise assumption via Kernel Density vs. N(0,1)
-  p_dist <- ggplot(df_res, aes(x = Residual)) +
-    geom_histogram(aes(y = after_stat(density)), bins = 40, fill = "#BDC3C7", color = "white", alpha = 0.7) +
-    geom_density(color = "#2980B9", linewidth = 1) +
-    stat_function(fun = dnorm, args = list(mean = 0, sd = 1),
-                  color = "#E74C3C", linetype = "dashed", linewidth = 0.8) +
-    theme_classic(base_size = 11) +
-    labs(title = "B. Innovation Distribution", x = "Standardized Error", y = "Density") +
-    theme(plot.title = element_text(face = "bold"))
-
-  # =========================================================================
-  # C. NORMAL Q-Q PLOT
-  # =========================================================================
-  # Evaluates tail behaviors and skewness
-  p_qq <- ggplot(df_res, aes(sample = Residual)) +
-    stat_qq(color = "#34495E", alpha = 0.4, size = 1.5) +
-    stat_qq_line(color = "#E74C3C", linewidth = 1, linetype = "dashed") +
-    theme_classic(base_size = 11) +
-    labs(title = "C. Normal Q-Q Plot", x = "Theoretical Quantiles", y = "Sample Quantiles") +
-    theme(plot.title = element_text(face = "bold"))
-
-  # =========================================================================
-  # D. AUTOCORRELATION FUNCTION (ACF)
-  # =========================================================================
-  # Evaluates structural leakage (unmodeled dynamics remaining in the error)
-  acf_res <- acf(std_res, lag.max = 20, plot = FALSE)
-  df_acf <- data.frame(Lag = acf_res$lag[-1], ACF = acf_res$acf[-1])
-  ci_acf <- qnorm((1 + 0.95)/2) / sqrt(length(std_res))
-
-  p_acf <- ggplot(df_acf, aes(x = Lag, y = ACF)) +
-    geom_segment(aes(xend = Lag, yend = 0), color = "#2C3E50", linewidth = 1.5, alpha = 0.8) +
-    geom_hline(yintercept = 0, color = "black", linewidth = 0.5) +
-    geom_hline(yintercept = c(-ci_acf, ci_acf), color = "#E74C3C", linetype = "dashed") +
-    theme_classic(base_size = 11) +
-    labs(title = "D. Autocorrelation Function (ACF)", x = "Lag (Beats)", y = "ACF") +
-    theme(plot.title = element_text(face = "bold"))
-
-  # =========================================================================
-  # E. LJUNG-BOX TEST INDEPENDENCE TRAJECTORY
-  # =========================================================================
-  lags <- 11:30
-  p_vals <- sapply(lags, function(l) {
-    tryCatch({
-      Box.test(std_res, lag = l, type = "Ljung-Box", fitdf = length(opt_theta))$p.value
-    }, error = function(e) NA)
-  })
-
-  df_lb <- data.frame(Lag = lags, P_Value = p_vals)
-
-  p_lb <- ggplot(df_lb, aes(x = Lag, y = P_Value)) +
-    geom_point(color = "#2980B9", size = 2) +
-    geom_line(color = "#2980B9", alpha = 0.5) +
-    geom_hline(yintercept = 0.05, color = "#E74C3C", linetype = "dashed", linewidth = 0.8) +
-    scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.25)) +
-    theme_classic(base_size = 11) +
-    labs(title = "E. Ljung-Box Independence Test", x = "Lag (Beats)", y = "P-Value") +
-    theme(plot.title = element_text(face = "bold"))
-
-  # =========================================================================
-  # ASSEMBLE DASHBOARD
-  # =========================================================================
-
-  # Design: Time Series spans the entire top row.
-  # Distribution and Q-Q share the middle row.
-  # Correlogram and Hypothesis Tests share the bottom row.
-  layout <- "
-  AAAAAA
-  BBBCCC
-  DDDEEE
-  "
-
-  dashboard <- p_time + p_dist + p_qq + p_acf + p_lb +
-    plot_layout(design = layout)
-
-  return(dashboard)
-}
-
-#' Evaluate Goodness-of-Fit Metrics (Log-Linear Fixed)
-evaluate_single_fit <- function(fit_result, rr_ts) {
-  # FIX: Directly pass the boolean flag from the fit_result object
-  converged <- fit_result$convergence
-  nll <- fit_result$value
-
-  # AIC correctly scales dynamically with the 7 parameter length
-  aic <- 2 * length(fit_result$par) + 2 * nll
-
-  log_rr_ts <- log(rr_ts)
-  kf_out <- suppressWarnings(run_kalman_filter(fit_result$par, log_rr_ts, return_states = TRUE))
-  innovations <- kf_out$innovations[-1]
-
-  # Evaluated at lag 20 to ensure valid degrees of freedom against 7 estimated parameters
-  lb_test <- tryCatch(
-    Box.test(innovations, lag = 20, type = "Ljung-Box", fitdf = length(fit_result$par)),
-    error = function(e) list(statistic = NA, p.value = NA)
+  Z_bal <- X_s - X_p
+  Z_tot <- X_s + X_p
+  df_Z <- data.frame(
+    Time = rep(time_cum, 2), Value = c(Z_bal, Z_tot),
+    State = factor(rep(c("Autonomic Balance (s - p)", "Total Tone (s + p)"), each = N))
   )
 
-  return(data.frame(
-    Converged = converged,
-    NLL = round(nll, 2),
-    AIC = round(aic, 2),
-    LB_Stat = round(as.numeric(lb_test$statistic), 2),
-    LB_p_value = as.numeric(lb_test$p.value)
-  ))
+  pB <- ggplot(df_Z, aes(x = Time, y = Value, color = State)) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
+    geom_line(linewidth = 0.8) +
+    scale_color_manual(values = c("Autonomic Balance (s - p)" = "#4DBBD5", "Total Tone (s + p)" = "#00A087")) +
+    labs(title = "Geometric Projections", y = "Amplitude (Hz)", x = "") +
+    theme_classic() + theme(legend.title = element_blank(), legend.position = "top")
+
+  df_X <- data.frame(
+    Time = rep(time_cum, 2), Value = c(X_p, X_s),
+    State = factor(rep(c("Parasympathetic Drive", "Sympathetic Drive"), each = N),
+                   levels = c("Sympathetic Drive", "Parasympathetic Drive"))
+  )
+
+  pC <- ggplot(df_X, aes(x = Time, y = Value, color = State)) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
+    geom_line(linewidth = 0.8) +
+    scale_color_manual(values = c("Parasympathetic Drive" = "#3C5488", "Sympathetic Drive" = "#DC0000")) +
+    labs(title = "Native Autonomic Drivers (Direct Tracking)", y = "Amplitude (Hz)", x = "Time (seconds)") +
+    theme_classic() + theme(legend.title = element_blank(), legend.position = "bottom")
+
+  # 2. DYNAMIC ENERGY MAP FRAMING
+  Sigma_stat <- diag(c(p$sig_p^2 / (2 * p$kp), p$sig_s^2 / (2 * p$ks)))
+  inv_Sigma <- solve(Sigma_stat)
+
+  p_range <- range(X_p); s_range <- range(X_s)
+  margin_p <- diff(p_range) * 0.2; if(margin_p == 0) margin_p <- 0.01
+  margin_s <- diff(s_range) * 0.2; if(margin_s == 0) margin_s <- 0.01
+
+  grid_p <- seq(p_range[1] - margin_p, p_range[2] + margin_p, length.out = 150)
+  grid_s <- seq(s_range[1] - margin_s, s_range[2] + margin_s, length.out = 150)
+  grid <- expand.grid(X_p = grid_p, X_s = grid_s)
+
+  grid$Energy <- apply(grid, 1, function(v) { 0.5 * as.numeric(t(v) %*% inv_Sigma %*% v) })
+  max_E <- quantile(grid$Energy, 0.95)
+  grid$Energy <- pmin(grid$Energy, max_E)
+
+  df_traj <- data.frame(X_p = X_p, X_s = X_s, Time = time_cum)
+
+  pD <- ggplot() +
+    geom_raster(data = grid, aes(x = X_p, y = X_s, fill = Energy), alpha = 0.9) +
+    geom_contour(data = grid, aes(x = X_p, y = X_s, z = Energy), color = "white", alpha = 0.3, bins = 15) +
+    geom_path(data = df_traj, aes(x = X_p, y = X_s, color = Time), linewidth = 0.6,
+              arrow = arrow(type = "closed", length = unit(0.06, "inches"))) +
+    scale_fill_viridis_c(option = "mako", name = "Energy (U)") +
+    scale_color_viridis_c(option = "plasma", guide = "none") +
+    scale_x_continuous(expand = c(0,0)) + scale_y_continuous(expand = c(0,0)) +
+    labs(title = "Autonomic Phase Space Topology", x = "Parasympathetic Drive (Hz)", y = "Sympathetic Drive (Hz)") +
+    theme_classic() + theme(legend.position = "bottom")
+
+  (pA / pB / pC) | pD
 }
 
-#' Batch Validate Autonomic Model Across Multiple Recordings
-#'
-#' @param rr_batch_list A list of numeric vectors, where each vector is an RR time series.
-#' @param subject_ids A character/numeric vector of IDs corresponding to the batch list.
-#' @return A data frame summarizing the validation metrics for all subjects.
-batch_validate_models <- function(rr_batch_list, subject_ids) {
+# ==============================================================================
+# DIAGNOSTICS SUITE (Pre-standardized innovations)
+# ==============================================================================
+diagnose_model <- function(fit_obj) {
+  z <- fit_obj$innovations
+  U_k <- pnorm(z)
+  N <- length(U_k)
 
-  num_records <- length(rr_batch_list)
-  results_list <- vector("list", num_records)
+  ks_res <- ks.test(U_k, "punif")
+  print(ks_res)
+  ks_stat <- ks_res$statistic
+  p_val <- ks_res$p.value
+  bound <- 1.36 / sqrt(N)
 
-  for (i in seq_len(num_records)) {
-    id <- subject_ids[i]
-    rr_ts <- rr_batch_list[[i]]
+  df_qq <- data.frame(z = z)
+  pA <- ggplot(df_qq, aes(sample = z)) +
+    stat_qq(color = "darkblue", alpha = 0.5) + stat_qq_line(color = "red", linetype = "dashed", linewidth = 1) +
+    labs(title = "Q-Q Plot of Phase Innovations", subtitle = "Tests Linear Observation Gaussianity", x = "Theoretical Normal", y = "Empirical") + theme_classic()
 
-    run_status <- tryCatch({
+  empirical_cdf <- ecdf(U_k)
+  df_cdf <- data.frame(U = sort(U_k), CDF = empirical_cdf(sort(U_k)))
 
-      fit <- fit_autonomic_model(rr_ts)
-      metrics <- evaluate_single_fit(fit, rr_ts)
+  pB <- ggplot(df_cdf, aes(x = U, y = CDF)) +
+    geom_step(color = "darkgreen", linewidth = 1) + geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+    geom_abline(slope = 1, intercept = bound, color = "gray", linetype = "dotted", linewidth=0.8) +
+    geom_abline(slope = 1, intercept = -bound, color = "gray", linetype = "dotted", linewidth=0.8) +
+    annotate("text", x = 0.2, y = 0.9, label = paste("KS Stat:", round(ks_stat, 4)), hjust = 0) +
+    annotate("text", x = 0.2, y = 0.8, label = paste("p-value:", round(p_val, 4)), hjust = 0) +
+    coord_cartesian(ylim = c(0, 1), xlim = c(0, 1)) +
+    labs(title = "Time-Rescaling KS-Plot", subtitle = "Validates Exact IPFM Boundary Crossings", x = "Theoretical Uniform(0,1)", y = "Empirical CDF") + theme_classic()
 
-      data.frame(
-        Subject_ID = id,
-        Status = "Success",
-        Converged = metrics$Converged,
-        NLL = metrics$NLL,
-        AIC = metrics$AIC,
-        LB_Stat = metrics$LB_Stat,
-        LB_p_value = metrics$LB_p_value,
-        stringsAsFactors = FALSE
-      )
+  acf_data <- acf(z, plot = FALSE, lag.max = 40)
+  df_acf <- data.frame(lag = acf_data$lag[-1], acf = acf_data$acf[-1])
 
-    }, error = function(e) {
-      data.frame(
-        Subject_ID = id,
-        Status = paste("Failed:", e$message),
-        Converged = NA,
-        NLL = NA,
-        AIC = NA,
-        LB_Stat = NA,
-        LB_p_value = NA,
-        stringsAsFactors = FALSE
-      )
-    })
+  pC <- ggplot(df_acf, aes(x = lag, y = acf)) +
+    geom_segment(aes(xend = lag, yend = 0), color = "black", linewidth = 0.8) + geom_hline(yintercept = c(-1.96/sqrt(N), 1.96/sqrt(N)), color = "red", linetype = "dashed") +
+    geom_hline(yintercept = 0, color = "black") + labs(title = "Autocorrelation of Innovations", subtitle = "Tests for Unmodeled Kinetics", x = "Lag (Heartbeats)", y = "ACF") + theme_classic()
 
-    results_list[[i]] <- run_status
+  pD <- ggplot(df_qq, aes(x = z)) +
+    geom_histogram(aes(y = after_stat(density)), fill = "#7E6148", alpha = 0.7, bins = 30, color = "white") +
+    stat_function(fun = dnorm, args = list(mean = 0, sd = 1), linewidth = 1.2, color = "black", linetype = "dashed") +
+    labs(title = "Exact Gaussian Innovations", subtitle = "Validating Phase-Domain Linearity", x = "Standardized Residuals", y = "Density") + theme_classic()
 
-    if (i %% 10 == 0) cat(sprintf("Processed %d / %d datasets...\n", i, num_records))
-  }
-
-  final_results_df <- do.call(rbind, results_list)
-  return(final_results_df)
+  (pA | pB) / (pC | pD)
 }
