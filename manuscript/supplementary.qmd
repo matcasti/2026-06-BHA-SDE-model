@@ -54,3 +54,77 @@ F_{\tau}(t) \approx \Phi\left( \frac{\nu t - 1.0}{\sigma \sqrt{t}} \right)
 $$
 
 By establishing that the probability of a path crossing the depolarization threshold and returning below it within a single cardiac cycle is biologically and numerically negligible, the phase-domain inversion ceases to be a heuristic approximation. It represents the exact physical limit of the continuous point process, safely vindicating the use of closed-form linear-Gaussian Kalman filtering theory.
+
+# Estimation algorithm
+
+This section details the specific algorithmic execution and numerical safeguards required to implement the augmented phase-domain state-space model. The computational architecture is divided into the continuous wavelet extraction algorithm, the numerically stable evaluation of the continuous-time transitions, the geometric enforcement of the Kalman covariance updates, and the structural assembly of the unconstrained optimization space.
+
+## Deterministic spectral anchor
+
+The extraction of the deterministic spectral anchor relies on the continuous Morlet wavelet transform. To perform this integration over a continuous time-frequency domain, the uneven inter-beat interval sequence is first inverted to an instantaneous heart rate and interpolated onto an isochronous grid sampled at four Hertz using a cubic spline. The interpolated signal is mean-centered to prevent the direct current component from dominating the low-frequency wavelet scales. The biwavelet algorithm evaluates the time-frequency surface, which is subsequently averaged across the temporal dimension to yield the global wavelet spectrum. Because the wavelet scales are distributed logarithmically, a direct summation of the spectral bins induces a frequency bias. The absolute power within the low-frequency and high-frequency physiological bands is evaluated as a Riemann sum, scaled by the discrete frequency differential:
+
+$$
+P_{band} = \sum_{f \in band} \bar{W}(f) df
+$$
+
+where $\bar{W}(f)$ is the global wavelet power at frequency $f$, and $df$ is the absolute difference between adjacent frequency scales. The spectral ratio is computed as the quotient of the high-frequency and low-frequency power. The analytical vagal variance fraction $\lambda_p$ is updated dynamically during the optimization routine as a function of this static empirical ratio and the numerical clearance parameters:
+
+$$
+\lambda_p = \left( \frac{P_{HF}}{P_{LF}} \right) \left( \frac{\kappa_p}{\kappa_s} \right)
+$$
+
+## Evaluation of the continuous-time transitions
+
+Evaluating the continuous-time transitions of the Ornstein-Uhlenbeck processes over discrete, uneven observation intervals requires computing the exact matrix exponential and the corresponding process covariance integrals. When the product of the neural clearance rate $\kappa$ and the interval duration $\Delta t_k$ approaches zero, the exact analytical solutions become computationally unstable. Standard evaluation of the integrated phase variance involves operations configured as $(1 - \exp(-x))/x$, which succumb to catastrophic floating-point cancellation limits in standard architectures. To resolve this instability, the algorithm evaluates the dimensionless argument $x = \kappa \Delta t_k$. For values of $x \ge 10^{-3}$, the integrated phase covariance $Q_{3,3}$ is evaluated using the closed-form continuous integral:
+
+$$
+Q_{3,3} = \frac{\sigma^2}{\kappa^2} \left[ \Delta t_k - \frac{2}{\kappa}(1 - e^{-\kappa \Delta t_k}) + \frac{1}{2\kappa}(1 - e^{-2\kappa \Delta t_k}) \right]
+$$
+
+When the observation interval or the clearance rate causes $x < 10^{-3}$, the algorithm transitions to a truncated Taylor series expansion. This substitution bypasses the exponential subtractions entirely, ensuring that the process covariance matrices remain strictly positive semi-definite near the limit boundary:
+
+$$
+Q_{3,3} \approx \sigma^2 \left[ \frac{\Delta t_k^3}{3} - \frac{\kappa \Delta t_k^4}{4} + \frac{7\kappa^2 \Delta t_k^5}{60} \right]
+$$
+
+## Kalman covariance updates
+
+The dual-filter Generalized Least Squares engine relies on two concurrent state vectors to compute the normalized innovations. The primary vector $X^{(0)}$ evaluates the stochastic progression assuming a null intrinsic baseline, while the secondary vector $X^{(\nu)}$ evaluates the deterministic system response to the time step variable. The numerical stability of this recursive filter is maintained through the specific algebraic formulation of the covariance update. Standard Kalman implementations utilize the subtraction form for the a posteriori covariance, which can lose positive semi-definiteness under conditions of low measurement noise or prolonged estimation. The present architecture utilizes the Joseph form of the covariance update equation:
+
+$$
+P_{k|k} = (I - K_k H) P_{k|k-1} (I - K_k H)^T + K_k R_k K_k^T
+$$
+
+where $K_k$ is the Kalman gain, $H$ is the observation matrix, and $R_k$ is the threshold noise variance parameterized as $\lambda_R \Delta t_k$. This algebraic structure guarantees that the covariance matrix $P_{k|k}$ remains symmetric and positive semi-definite regardless of the numerical magnitude of the measurement updates. Explicit structural symmetry is subsequently enforced by averaging the matrix with its own transpose. Following this update, the sinoatrial node repolarization is modeled by setting the third and fourth dimensions of the state vectors and the covariance matrix exactly to zero.
+
+At the conclusion of the filtering sequence of length $N$, the optimal baseline intrinsic drift $\hat{\nu}_0$ and the global system volatility $\hat{\sigma}_{sys}^2$ are computed using the stored arrays of the stochastic innovations $v^{(0)}$, the deterministic responses $v^{(\nu)}$, and the sequential innovation variances $S$:
+
+$$
+\hat{\nu}_0 = \frac{\sum_{k=1}^N \left( v_k^{(0)} v_k^{(\nu)} / S_k \right)}{\sum_{k=1}^N \left( (v_k^{(\nu)})^2 / S_k \right)}
+$$
+
+$$
+\hat{\sigma}_{sys}^2 = \frac{1}{N} \sum_{k=1}^N \frac{(v_k^{(0)} - \hat{\nu}_0 v_k^{(\nu)})^2}{S_k}
+$$
+
+The final physiological state geometry is reconstructed through the linear superposition of the deterministic and stochastic storage matrices. The extracted baseline scales the deterministic response, yielding the exact uncoupled biological states:
+
+$$
+\hat{X}_{final} = X^{(0)} - \hat{\nu}_0 X^{(\nu)}
+$$
+
+# Unconstrained optimization space
+
+The numerical parameter estimation relies on a bounded Broyden-Fletcher-Goldfarb-Shanno optimization algorithm. The algorithm searches an unconstrained three-dimensional Euclidean space, denoted by the vector $\theta$. The elements of $\theta$ are mapped to the physical parameters through exponential transformations. The sympathetic clearance rate is mapped as $\kappa_s = \exp(\theta_1)$. The structural identifiability constraint dictating that vagal kinetics must operate faster than sympathetic kinetics is enforced via the mapping $\kappa_p = \kappa_s + \exp(\theta_2)$. The fractional threshold noise is mapped as $\lambda_R = \exp(\theta_3)$.
+
+The objective function evaluates the negative regularized log-posterior. The profiled log-likelihood $\mathcal{L}^*$ is formulated exclusively from the innovation variance and the analytically derived global system volatility:
+
+$$
+\mathcal{L}^* = -\frac{1}{2} \sum_{k=1}^N \ln(S_k) - \frac{N}{2} \ln(\hat{\sigma}_{sys}^2)
+$$
+
+Exact conjugate probability bounds are applied as additive algebraic penalties to the profiled log-likelihood. The Gamma priors applied to the clearance rates and the Inverse-Gamma prior applied to the threshold noise fraction translate into continuous polynomial curves that penalize the boundaries of the parameter space. The final cost function passed to the numerical optimizer is the inversion of this regularized topology:
+
+$$
+\text{Cost} = -\mathcal{L}^* - \left[ (\alpha_s - 1)\ln(\kappa_s) - \beta_s \kappa_s \right] - \left[ (\alpha_p - 1)\ln(\kappa_p) - \beta_p \kappa_p \right] - \left[ -(a + 1)\ln(\lambda_R) - \frac{b}{\lambda_R} \right]
+$$
