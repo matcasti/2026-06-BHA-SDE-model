@@ -9,10 +9,21 @@ author:
     affiliation: "Department of Mathematics, University of Munich, Theresienstraße 39, 80333 Munich, Germany."
   - name: "Cristian Núñez-Espinosa"
     affiliation: "Escuela de Medicina, Universidad de Magallanes, Punta Arenas, Chile."
+bibliography: citations.bib
+toc: true
+number-sections: true
 format: 
   html:
+    theme: 
+      light: Yeti
+      dark: Solar
     title-block-style: manuscript
     embed-resources: true
+    output-file: index.html
+    code-links: 
+      - text: Supplementary material
+        href: supplementary.html
+        icon: file-earmark-text
 ---
 
 # Introduction

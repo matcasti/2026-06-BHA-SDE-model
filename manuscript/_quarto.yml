@@ -1,0 +1,22 @@
+project:
+  type: website
+
+website:
+  title: "Phase-Domain State-Space Framework"
+  navbar:
+    left:
+      - href: manuscript.qmd
+        text: Manuscript
+      - href: supplementary.qmd
+        text: Supplementary
+    right:
+      - icon: github
+        href: https://github.com/matcasti/
+
+format:
+  html:
+    theme:
+      light: Yeti
+      dark: Solar
+    toc: true
+
