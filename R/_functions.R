@@ -6,40 +6,56 @@
 # global system volatility, and deterministic spectral anchoring for branch ratios.
 # ==============================================================================
 
-if (!require(ggplot2)) install.packages("ggplot2")
-if (!require(patchwork)) install.packages("patchwork")
-if (!require(expm)) install.packages("expm")
-
+library(biwavelet)
 library(ggplot2)
 library(patchwork)
-library(expm)
+#library(expm)
 
 # ==============================================================================
-# 1. SPECTRAL INITIALIZATION (Priors & Parseval Anchoring)
+# 1. SPECTRAL INITIALIZATION (Priors & Parseval Anchoring via Morlet CWT)
 # ==============================================================================
 extract_spectral_priors <- function(dy) {
-  cat("Extracting spectral priors and Parseval energy ratio...\n")
+  cat("Extracting Parseval energy ratio via Morlet Wavelet integration...\n")
   time_cum <- cumsum(dy)
   hr_hz <- 1 / dy
 
+  # Standardize grid to 4Hz (0.25s) for continuous integration
   fs <- 4
   t_grid <- seq(min(time_cum), max(time_cum), by = 1/fs)
   hr_interp <- spline(time_cum, hr_hz, xout = t_grid)$y
 
-  spec <- spectrum(hr_interp, plot = FALSE, spans = c(3, 5))
-  freqs <- spec$freq * fs
-  power <- spec$spec
+  # Mean-center the signal to prevent DC artifact dominating the wavelet scales
+  hr_centered <- hr_interp - mean(hr_interp)
 
-  # Approximate power in LF and HF bands
+  # 1. Continuous Wavelet Transform (Morlet)
+  # biwavelet expects a 2-column matrix: [Time, Value]
+  data_mat <- cbind(t_grid, hr_centered)
+
+  # Run CWT (suppress noisy console outputs from the package)
+  invisible(capture.output(
+    wt_res <- biwavelet::wt(data_mat, do.sig = FALSE)
+  ))
+
+  # 2. Extract the Global Wavelet Spectrum
+  # Average the time-frequency power surface across the time dimension
+  global_power <- rowMeans(wt_res$power)
+  freqs <- 1 / wt_res$period
+
+  # 3. Integrate Power Over Physiological Bands
   lf_idx <- which(freqs >= 0.04 & freqs < 0.15)
   hf_idx <- which(freqs >= 0.15 & freqs <= 0.40)
 
-  p_lf <- sum(power[lf_idx])
-  p_hf <- sum(power[hf_idx])
+  # Because wavelet scales are logarithmic, we multiply the global power
+  # by the frequency differential (df) for a true mathematical integral.
+  df <- abs(c(diff(freqs), 0))
+
+  p_lf <- sum(global_power[lf_idx] * df[lf_idx])
+  p_hf <- sum(global_power[hf_idx] * df[hf_idx])
 
   energy_ratio <- p_hf / p_lf
-  cat(sprintf("Spectral Energy Ratio (HF/LF): %.4f\n", energy_ratio))
+  cat(sprintf("Wavelet Energy Ratio (HF/LF): %.4f\n", energy_ratio))
 
+  # Return the intrinsic baseline drift and the robust spectral ratio
   list(
     nu0_init = mean(hr_hz),
     energy_ratio = energy_ratio
@@ -156,7 +172,7 @@ fit_model <- function(dy) {
   cat("\nRunning 3D BFGS Optimization with MAP Penalties...\n")
   opt_res <- optim(par = theta_init, fn = objective_map_3d, dy = dy,
                    energy_ratio = priors$energy_ratio, method = "BFGS",
-                   control = list(maxit = 500, trace = 1))
+                   control = list(maxit = 1000, trace = 1))
 
   # Extract Final Parameters
   ks_opt <- exp(opt_res$par[1])
@@ -182,7 +198,7 @@ fit_model <- function(dy) {
 }
 
 # ==============================================================================
-# REPORT PARAMETERS (Delta Method for 3D MAP Grid)
+# REPORT PARAMETERS (Extensive 3D MAP Grid with Physiological Interpretations)
 # ==============================================================================
 report_model <- function(fit_obj) {
   if (!requireNamespace("numDeriv", quietly = TRUE)) install.packages("numDeriv")
@@ -191,14 +207,21 @@ report_model <- function(fit_obj) {
   dy <- fit_obj$dy
   p <- fit_obj$params
 
+  # Transformed optimization space
   theta_opt <- c(log(p$ks), log(p$kp - p$ks), log(p$lR))
 
-  cat("Calculating standard errors via Delta Method...\n")
-  hess_precise <- numDeriv::hessian(func = objective_map_3d, x = theta_opt,
-                                    dy = dy, energy_ratio = p$energy_ratio)
+  cat("\nCalculating standard errors via exact Delta Method...\n")
+  hess_precise <- numDeriv::hessian(
+    func = objective_map_3d,
+    x = theta_opt,
+    dy = dy,
+    energy_ratio = p$energy_ratio
+  )
+
+  # Safely invert Hessian for covariance matrix
   inv_hess <- tryCatch(MASS::ginv(hess_precise), error = function(e) matrix(NA, 3, 3))
 
-  # Jacobian for Delta Method (ks, kp, lR)
+  # Jacobian for Delta Method mapping from Theta to Physical (ks, kp, lR)
   J <- matrix(0, nrow = 3, ncol = 3)
   J[1, 1] <- p$ks
   J[2, 1] <- p$ks
@@ -206,21 +229,67 @@ report_model <- function(fit_obj) {
   J[3, 3] <- p$lR
 
   cov_physical <- J %*% inv_hess %*% t(J)
-  se_vals <- sqrt(ifelse(diag(cov_physical) < 0, abs(diag(cov_physical)), diag(cov_physical)))
 
-  results <- data.frame(
-    Parameter = c("Nu_0 (Baseline Drift)", "Sigma_sys (Global Scale)", "Lambda_P (Vagal Ratio)",
-                  "Kappa_S (Symp Resonance)", "Kappa_P (Vagal Resonance)", "Lambda_R (Threshold Ratio)"),
-    Status = c("Profiled (GLS)", "Profiled (GLS)", "Profiled (Spectral)", rep("Estimated via MAP", 3)),
-    Estimate = round(c(p$nu0, sqrt(p$sig2), p$lp, p$ks, p$kp, p$lR), 5),
-    StdError = c(NA, NA, NA, round(se_vals, 5))
+  # Extract explicit standard errors for the numerical parameters
+  se_ks <- sqrt(max(cov_physical[1, 1], 0))
+  se_kp <- sqrt(max(cov_physical[2, 2], 0))
+  se_lR <- sqrt(max(cov_physical[3, 3], 0))
+
+  # Delta Method extension for biological time constants (tau = 1/kappa)
+  # d(1/k)/dk = -1/k^2 -> Var(tau) = Var(k) / k^4
+  se_taus <- sqrt(max(cov_physical[1, 1] / (p$ks^4), 0))
+  se_taup <- sqrt(max(cov_physical[2, 2] / (p$kp^4), 0))
+
+  # Assembly of the Comprehensive Report Dictionary
+  params_list <- list(
+    list(name = "Nu_0", group = "Baseline", interp = "Intrinsic SA node pacing rate absent autonomic tone (Hz)", status = "Profiled (GLS)", est = p$nu0, se = NA),
+    list(name = "Sigma_sys^2", group = "Scale", interp = "Total stochastic system variance multiplier", status = "Profiled (GLS)", est = p$sig2, se = NA),
+
+    list(name = "Kappa_S", group = "Kinetics", interp = "Clearance rate of sympathetic neurotransmitters (Hz)", status = "Estimated (MAP)", est = p$ks, se = se_ks),
+    list(name = "Kappa_P", group = "Kinetics", interp = "Clearance rate of vagal neurotransmitters (Hz)", status = "Estimated (MAP)", est = p$kp, se = se_kp),
+    list(name = "Tau_S", group = "Kinetics", interp = "Relaxation half-life of sympathetic response (s)", status = "Derived (MAP)", est = 1/p$ks, se = se_taus),
+    list(name = "Tau_P", group = "Kinetics", interp = "Relaxation half-life of parasympathetic response (s)", status = "Derived (MAP)", est = 1/p$kp, se = se_taup),
+
+    list(name = "Sigma_S", group = "Volatility", interp = "Absolute amplitude of sympathetic neural drive", status = "Profiled (GLS)", est = p$sig_s, se = NA),
+    list(name = "Sigma_P", group = "Volatility", interp = "Absolute amplitude of parasympathetic neural drive", status = "Derived (Spectral)", est = p$sig_p, se = NA),
+
+    list(name = "Lambda_P", group = "Ratios", interp = "Vagal-to-Sympathetic energy balance (Parseval anchor)", status = "Profiled (Spectral)", est = p$lp, se = NA),
+    list(name = "Lambda_R", group = "Ratios", interp = "Fraction of variance from SA node threshold jitter", status = "Estimated (MAP)", est = p$lR, se = se_lR)
   )
 
-  cat("===================================================\n")
-  cat(" HRV PHASE-DOMAIN SDE-IPFM FITTING REPORT\n")
-  cat("===================================================\n")
-  print(results, row.names = FALSE)
-  cat("===================================================\n")
+  # Format into a strictly aligned data frame
+  df <- do.call(rbind, lapply(params_list, function(x) {
+    if (is.na(x$se)) {
+      ci_str <- "-"
+      se_str <- "-"
+    } else {
+      ci_low <- x$est - 1.96 * x$se
+      ci_upp <- x$est + 1.96 * x$se
+      ci_str <- sprintf("[%.4f, %.4f]", ci_low, ci_upp)
+      se_str <- sprintf("%.5f", x$se)
+    }
+
+    data.frame(
+      Parameter = x$name,
+      Estimate = sprintf("%.5f", x$est),
+      SE = se_str,
+      `CI_95%` = ci_str,
+      Status = x$status,
+      Interpretation = x$interp,
+      stringsAsFactors = FALSE,
+      check.names = FALSE
+    )
+  }))
+
+  # Console Print Layout
+  cat("\n=========================================================================================================\n")
+  cat("                              HRV PHASE-DOMAIN SDE-IPFM FITTING REPORT\n")
+  cat("=========================================================================================================\n")
+  print(df, row.names = FALSE, right = FALSE)
+  cat("=========================================================================================================\n")
+  cat("* Note: Parameters marked as 'Profiled' are solved exactly via analytical analytical integration \n")
+  cat("  (GLS/Concentrated Likelihood) or deterministic continuous wavelet mapping. Because they are integrated \n")
+  cat("  out of the optimization search space, they do not possess numerical MLE standard errors.\n\n")
 }
 
 # ==============================================================================
@@ -249,23 +318,23 @@ visualize_model <- function(fit_obj) {
   df_fit <- data.frame(Time = time_cum, Observed = dy, Implied = implied_rr)
 
   pA <- ggplot(df_fit, aes(x = Time)) +
-    geom_line(aes(y = Observed, color = "Observed RR"), linewidth = 0.8, alpha = 0.5) +
-    geom_line(aes(y = Implied, color = "Filtered RR"), linewidth = 1) +
+    geom_line(aes(y = Observed, color = "Observed RR"), linewidth = 1, alpha = 0.5) +
+    geom_line(aes(y = Implied, color = "Filtered RR"), linewidth = 1/3) +
     scale_color_manual(values = c("Observed RR" = "gray50", "Filtered RR" = "darkred")) +
     labs(title = "Phase-Domain Filtering & Predictive Fit", y = "RR Interval (s)", x = "") +
     theme_classic() + theme(legend.title = element_blank(), legend.position = "top")
 
-  Z_bal <- X_s - X_p
+  Z_bal <- X_p - X_s
   Z_tot <- X_s + X_p
   df_Z <- data.frame(
     Time = rep(time_cum, 2), Value = c(Z_bal, Z_tot),
-    State = factor(rep(c("Autonomic Balance (s - p)", "Total Tone (s + p)"), each = N))
+    State = factor(rep(c("Autonomic Balance (p - s)", "Total Tone (p + s)"), each = N))
   )
 
   pB <- ggplot(df_Z, aes(x = Time, y = Value, color = State)) +
     geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
-    geom_line(linewidth = 0.8) +
-    scale_color_manual(values = c("Autonomic Balance (s - p)" = "#4DBBD5", "Total Tone (s + p)" = "#00A087")) +
+    geom_line(linewidth = 1/3) +
+    scale_color_manual(values = c("Autonomic Balance (p - s)" = "#4DBBD5", "Total Tone (p + s)" = "#00A087")) +
     labs(title = "Geometric Projections", y = "Amplitude (Hz)", x = "") +
     theme_classic() + theme(legend.title = element_blank(), legend.position = "top")
 
@@ -277,7 +346,7 @@ visualize_model <- function(fit_obj) {
 
   pC <- ggplot(df_X, aes(x = Time, y = Value, color = State)) +
     geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
-    geom_line(linewidth = 0.8) +
+    geom_line(linewidth = 1/3) +
     scale_color_manual(values = c("Parasympathetic Drive" = "#3C5488", "Sympathetic Drive" = "#DC0000")) +
     labs(title = "Native Autonomic Drivers (Direct Tracking)", y = "Amplitude (Hz)", x = "Time (seconds)") +
     theme_classic() + theme(legend.title = element_blank(), legend.position = "bottom")
@@ -346,7 +415,7 @@ diagnose_model <- function(fit_obj) {
     labs(title = "Time-Rescaling KS-Plot", subtitle = "Validates Exact IPFM Boundary Crossings", x = "Theoretical Uniform(0,1)", y = "Empirical CDF") + theme_classic()
 
   acf_data <- acf(z, plot = FALSE, lag.max = 40)
-  df_acf <- data.frame(lag = acf_data$lag[-1], acf = acf_data$acf[-1])
+  df_acf <- data.frame(lag = acf_data$lag, acf = acf_data$acf)
 
   pC <- ggplot(df_acf, aes(x = lag, y = acf)) +
     geom_segment(aes(xend = lag, yend = 0), color = "black", linewidth = 0.8) + geom_hline(yintercept = c(-1.96/sqrt(N), 1.96/sqrt(N)), color = "red", linetype = "dashed") +
