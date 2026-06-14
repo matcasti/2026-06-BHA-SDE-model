@@ -1,4 +1,7 @@
 
+# Prepare workspace -------------------------------------------------------
+
+## Import libraries
 library(data.table)
 library(RHRV)
 library(reticulate)
@@ -22,6 +25,9 @@ for (id in subjects) {
 cat(rr_intervals, sep = "\n", file = paste0("data/fantasia/",id,".txt"))
 }
 
+plot(rr_intervals, type = "o", pch = "•")
+
+
 # Importing PRCP dataset ---------------------------------------------------
 
 subjects <- list.files("data-raw/prcp/") |>
@@ -43,3 +49,21 @@ for (id in subjects) {
 
   cat(rr_intervals, sep = "\n", file = paste0("data/prcp/",id,".txt"))
 }
+
+plot(rr_intervals, type = "o", pch = "•")
+
+
+# Importing TMST dataset --------------------------------------------------
+
+subjects <- list.files("data-raw/tmst/hrv_data/") |>
+  unique()
+
+for (id in subjects) {
+  rr_intervals <- import_RRi_txt(file = paste0("data-raw/tmst/hrv_data/",id), F, F, warn = FALSE)$RRi
+  rr_intervals <- clean_outlier(rr_intervals, threshold = 3)
+  rr_intervals <- filter_signal(rr_intervals, n = 1, W = 0.8)
+  rr_intervals <- rr_intervals[!is.na(rr_intervals)]/1000
+  cat(rr_intervals, sep = "\n", file = paste0("data/tmst/",id))
+}
+
+plot(rr_intervals, type = "o", pch = "•")
