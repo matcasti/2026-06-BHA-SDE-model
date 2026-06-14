@@ -11,6 +11,7 @@ author:
     affiliation: "Escuela de Medicina, Universidad de Magallanes, Punta Arenas, Chile."
 bibliography: citations.bib
 toc: true
+
 number-sections: true
 format: 
   html:
@@ -20,11 +21,22 @@ format:
     title-block-style: manuscript
     embed-resources: true
     output-file: index.html
+    resources: [model_code.R]
     code-links: 
       - text: Supplementary material
         href: supplementary.html
         icon: file-earmark-text
+      - text: Model (R script)
+        href: model_code.R
+        icon: code
 ---
+
+```{r}
+#| label: set-up
+#| include: false
+file.copy("../R/_functions.R", to = "model_code.R", overwrite = TRUE)
+```
+
 
 # Introduction
 
