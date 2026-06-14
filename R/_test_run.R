@@ -5,19 +5,7 @@
 source("R/_functions.R")
 
 ## Load test data
-rr_data <- readLines("data-raw/rri-prcp.txt")[1:1100] |>
-  as.numeric() |>
-  CardioCurveR::clean_outlier(threshold = 3)
-
-rr_data <- (readLines("data-raw/rri-jabf.txt") |>
-  as.numeric() |>
-  CardioCurveR::clean_outlier(threshold = 3))/1000
-
-rr_data <- (readLines("data-raw/rri-maca-hiit.txt") |>
-  as.numeric() |>
-  CardioCurveR::clean_outlier(threshold = 3))/1000
-
-rr_data <- (read.csv("data-raw/rri-rcmt.csv", comment.char = "#")[,2] |>
+rr_data <- (readLines("data/rri-jabf.txt") |>
   as.numeric() |>
   CardioCurveR::clean_outlier(threshold = 3))/1000
 

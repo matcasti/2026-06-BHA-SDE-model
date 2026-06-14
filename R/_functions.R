@@ -1,15 +1,10 @@
-# ==============================================================================
-# HRV STATE-SPACE MODEL: EXACT PHASE-DOMAIN IPFM WITH ANALYTICAL MARGINALIZATION
-# ==============================================================================
-# Implements a linear-Gaussian augmented Kalman Filter for unevenly sampled
-# RR intervals. It uses Exact GLS Marginalization for the baseline drift and
-# global system volatility, and deterministic spectral anchoring for branch ratios.
-# ==============================================================================
 
+# Prepare workspace -------------------------------------------------------
+
+## Import libraries
 library(biwavelet)
 library(ggplot2)
 library(patchwork)
-#library(expm)
 
 # ==============================================================================
 # 1. SPECTRAL INITIALIZATION (Priors & Parseval Anchoring via Morlet CWT)
@@ -63,7 +58,7 @@ extract_spectral_priors <- function(dy) {
 }
 
 # ==============================================================================
-# 2. ROBUST OU INTEGRALS HELPER (Solves Catastrophic Cancellation)
+# 2. OU INTEGRALS HELPER
 # ==============================================================================
 .compute_ou_block <- function(k, dt, sig2) {
   x <- k * dt
@@ -86,7 +81,7 @@ extract_spectral_priors <- function(dy) {
 }
 
 # ==============================================================================
-# 3. EXACT DUAL-FILTER GLS ENGINE
+# 3. DUAL-FILTER GLS
 # ==============================================================================
 run_gls_filter <- function(dy, kp, ks, lp, lR) {
   N <- length(dy)
@@ -126,7 +121,7 @@ run_gls_filter <- function(dy, kp, ks, lp, lR) {
     X0_store[k, ] <- as.numeric(X0)
     Xv_store[k, ] <- as.numeric(Xv)
 
-    # EXACT BOUNDARY RESET
+    # BOUNDARY RESET
     X0[3:4,] <- 0; Xv[3:4,] <- 0
     P[3:4, ] <- 0; P[, 3:4] <- 0
 
@@ -139,7 +134,7 @@ run_gls_filter <- function(dy, kp, ks, lp, lR) {
   sig2_hat <- max(mean(v_final^2 / S_vec), 1e-12)
   LL_star  <- -0.5 * sum(log(S_vec)) - (N / 2) * log(sig2_hat)
 
-  # Reconstruct exact biological states by linear superposition (scaled to physics)
+  # Reconstruct biological states by linear superposition
   states_final <- (X0_store - nu0_hat * Xv_store)
   std_innov <- v_final / sqrt(S_vec * sig2_hat)
 
@@ -163,7 +158,7 @@ objective_map_3d <- function(theta, dy, energy_ratio) {
 }
 
 # ==============================================================================
-# 4. OPTIMIZATION ROUTINE (Returns Full Extracted State Geometry)
+# 4. OPTIMIZATION ROUTINE
 # ==============================================================================
 fit_model <- function(dy) {
   priors <- extract_spectral_priors(dy)
@@ -198,7 +193,7 @@ fit_model <- function(dy) {
 }
 
 # ==============================================================================
-# REPORT PARAMETERS (Extensive 3D MAP Grid with Physiological Interpretations)
+# REPORT PARAMETERS
 # ==============================================================================
 report_model <- function(fit_obj) {
   if (!requireNamespace("numDeriv", quietly = TRUE)) install.packages("numDeriv")
@@ -293,7 +288,7 @@ report_model <- function(fit_obj) {
 }
 
 # ==============================================================================
-# VISUALIZATION (Exact Phase Reconstruction & Topology)
+# VISUALIZATION (Phase Reconstruction & Topology)
 # ==============================================================================
 visualize_model <- function(fit_obj) {
   dy <- fit_obj$dy
@@ -310,9 +305,8 @@ visualize_model <- function(fit_obj) {
 
   p <- fit_obj$params
 
-  # 1. EXACT PHASE-DOMAIN RECONSTRUCTION
-  # Bypasses all non-linear approximation by using the mathematical inverse
-  # of the IPFM integration: dt = (1.0 + Phase_p - Phase_s) / nu0
+  # 1. PHASE-DOMAIN RECONSTRUCTION
+  # Uses the mathematical inverse of the IPFM integration: dt = (1.0 + Phase_p - Phase_s) / nu0
   implied_rr <- (1.0 + Phase_p - Phase_s) / p$nu0
 
   df_fit <- data.frame(Time = time_cum, Observed = dy, Implied = implied_rr)
@@ -384,7 +378,7 @@ visualize_model <- function(fit_obj) {
 }
 
 # ==============================================================================
-# DIAGNOSTICS SUITE (Pre-standardized innovations)
+# DIAGNOSTICS (Pre-standardized innovations)
 # ==============================================================================
 diagnose_model <- function(fit_obj) {
   z <- fit_obj$innovations
