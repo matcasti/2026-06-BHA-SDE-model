@@ -5,11 +5,10 @@
 source("R/_functions.R")
 
 ## Load test data
-rr_data <- (readLines("data/rri-jabf.txt") |>
-  as.numeric() |>
-  CardioCurveR::clean_outlier(threshold = 3))/1000
+rr_data <- readLines("data/rri-jabf.txt") |>
+  as.numeric()
 
-plot(rr_data, type = "o", pch = 16, cex = 0.5)
+plot(rr_data, type = "o", pch = "•")
 
 fit <- fit_model(rr_data)
 

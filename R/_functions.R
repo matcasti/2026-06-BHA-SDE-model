@@ -312,11 +312,16 @@ visualize_model <- function(fit_obj) {
   df_fit <- data.frame(Time = time_cum, Observed = dy, Implied = implied_rr)
 
   pA <- ggplot(df_fit, aes(x = Time)) +
-    geom_line(aes(y = Observed, color = "Observed RR"), linewidth = 1, alpha = 0.5) +
+    geom_line(aes(y = Observed, color = "Observed RR"), linewidth = 1/3, alpha = 0.5) +
     geom_line(aes(y = Implied, color = "Filtered RR"), linewidth = 1/3) +
-    scale_color_manual(values = c("Observed RR" = "gray50", "Filtered RR" = "darkred")) +
-    labs(title = "Phase-Domain Filtering & Predictive Fit", y = "RR Interval (s)", x = "") +
-    theme_classic() + theme(legend.title = element_blank(), legend.position = "top")
+    scale_color_manual(values = c("Observed RR" = "gray50",
+                                  "Filtered RR" = "darkred")) +
+    labs(title = "Phase-Domain Filtering & Predictive Fit",
+         y = "RR Interval (s)",
+         x = "") +
+    theme_classic() +
+    theme(legend.title = element_blank(),
+          legend.position = "top")
 
   Z_bal <- X_p - X_s
   Z_tot <- X_s + X_p
@@ -328,9 +333,14 @@ visualize_model <- function(fit_obj) {
   pB <- ggplot(df_Z, aes(x = Time, y = Value, color = State)) +
     geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
     geom_line(linewidth = 1/3) +
-    scale_color_manual(values = c("Autonomic Balance (p - s)" = "#4DBBD5", "Total Tone (p + s)" = "#00A087")) +
-    labs(title = "Geometric Projections", y = "Amplitude (Hz)", x = "") +
-    theme_classic() + theme(legend.title = element_blank(), legend.position = "top")
+    scale_color_manual(values = c("Autonomic Balance (p - s)" = "#4DBBD5",
+                                  "Total Tone (p + s)" = "#00A087")) +
+    labs(title = "Geometric Projections",
+         y = "Amplitude (Hz)",
+         x = "") +
+    theme_classic() +
+    theme(legend.title = element_blank(),
+          legend.position = "top")
 
   df_X <- data.frame(
     Time = rep(time_cum, 2), Value = c(X_p, X_s),
@@ -339,11 +349,17 @@ visualize_model <- function(fit_obj) {
   )
 
   pC <- ggplot(df_X, aes(x = Time, y = Value, color = State)) +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
+    geom_hline(yintercept = 0, linetype = "dashed",
+               color = "black", alpha = 0.5) +
     geom_line(linewidth = 1/3) +
-    scale_color_manual(values = c("Parasympathetic Drive" = "#3C5488", "Sympathetic Drive" = "#DC0000")) +
-    labs(title = "Native Autonomic Drivers (Direct Tracking)", y = "Amplitude (Hz)", x = "Time (seconds)") +
-    theme_classic() + theme(legend.title = element_blank(), legend.position = "bottom")
+    scale_color_manual(values = c("Parasympathetic Drive" = "#3C5488",
+                                  "Sympathetic Drive" = "#DC0000")) +
+    labs(title = "Native Autonomic Drivers (Direct Tracking)",
+         y = "Amplitude (Hz)",
+         x = "Time (seconds)") +
+    theme_classic() +
+    theme(legend.title = element_blank(),
+          legend.position = "bottom")
 
   # 2. DYNAMIC ENERGY MAP FRAMING
   Sigma_stat <- diag(c(p$sig_p^2 / (2 * p$kp), p$sig_s^2 / (2 * p$ks)))
@@ -364,15 +380,19 @@ visualize_model <- function(fit_obj) {
   df_traj <- data.frame(X_p = X_p, X_s = X_s, Time = time_cum)
 
   pD <- ggplot() +
-    geom_raster(data = grid, aes(x = X_p, y = X_s, fill = Energy), alpha = 0.9) +
-    geom_contour(data = grid, aes(x = X_p, y = X_s, z = Energy), color = "white", alpha = 0.3, bins = 15) +
-    geom_path(data = df_traj, aes(x = X_p, y = X_s, color = Time), linewidth = 0.6,
+    geom_raster(data = grid, aes(x = X_p, y = X_s, fill = Energy)) +
+    geom_contour(data = grid, aes(x = X_p, y = X_s, z = Energy), color = "white", alpha = 0.2, bins = 20) +
+    geom_path(data = df_traj, aes(x = X_p, y = X_s, color = Time),
               arrow = arrow(type = "closed", length = unit(0.06, "inches"))) +
     scale_fill_viridis_c(option = "mako", name = "Energy (U)") +
     scale_color_viridis_c(option = "plasma", guide = "none") +
-    scale_x_continuous(expand = c(0,0)) + scale_y_continuous(expand = c(0,0)) +
-    labs(title = "Autonomic Phase Space Topology", x = "Parasympathetic Drive (Hz)", y = "Sympathetic Drive (Hz)") +
-    theme_classic() + theme(legend.position = "bottom")
+    scale_x_continuous(expand = c(0,0)) +
+    scale_y_continuous(expand = c(0,0)) +
+    labs(title = "Autonomic Phase Space Topology",
+         x = "Parasympathetic Drive (Hz)",
+         y = "Sympathetic Drive (Hz)") +
+    theme_classic() +
+    theme(legend.position = "bottom")
 
   (pA / pB / pC) | pD
 }
@@ -393,32 +413,61 @@ diagnose_model <- function(fit_obj) {
 
   df_qq <- data.frame(z = z)
   pA <- ggplot(df_qq, aes(sample = z)) +
-    stat_qq(color = "darkblue", alpha = 0.5) + stat_qq_line(color = "red", linetype = "dashed", linewidth = 1) +
-    labs(title = "Q-Q Plot of Phase Innovations", subtitle = "Tests Linear Observation Gaussianity", x = "Theoretical Normal", y = "Empirical") + theme_classic()
+    stat_qq(color = "darkblue", alpha = 0.5) +
+    stat_qq_line(color = "red", linetype = "dashed") +
+    labs(title = "Q-Q Plot of Phase Innovations",
+         subtitle = "Tests Linear Observation Gaussianity",
+         x = "Theoretical Normal",
+         y = "Empirical") +
+    theme_classic()
 
   empirical_cdf <- ecdf(U_k)
   df_cdf <- data.frame(U = sort(U_k), CDF = empirical_cdf(sort(U_k)))
 
   pB <- ggplot(df_cdf, aes(x = U, y = CDF)) +
-    geom_step(color = "darkgreen", linewidth = 1) + geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+    geom_step(color = "darkgreen", linewidth = 1) +
+    geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
     geom_abline(slope = 1, intercept = bound, color = "gray", linetype = "dotted", linewidth=0.8) +
     geom_abline(slope = 1, intercept = -bound, color = "gray", linetype = "dotted", linewidth=0.8) +
     annotate("text", x = 0.2, y = 0.9, label = paste("KS Stat:", round(ks_stat, 4)), hjust = 0) +
     annotate("text", x = 0.2, y = 0.8, label = paste("p-value:", round(p_val, 4)), hjust = 0) +
     coord_cartesian(ylim = c(0, 1), xlim = c(0, 1)) +
-    labs(title = "Time-Rescaling KS-Plot", subtitle = "Validates Exact IPFM Boundary Crossings", x = "Theoretical Uniform(0,1)", y = "Empirical CDF") + theme_classic()
+    labs(title = "Time-Rescaling KS-Plot",
+         subtitle = "Validates Exact IPFM Boundary Crossings",
+         x = "Theoretical Uniform(0,1)",
+         y = "Empirical CDF") +
+    theme_classic()
 
   acf_data <- acf(z, plot = FALSE, lag.max = 40)
   df_acf <- data.frame(lag = acf_data$lag, acf = acf_data$acf)
 
   pC <- ggplot(df_acf, aes(x = lag, y = acf)) +
-    geom_segment(aes(xend = lag, yend = 0), color = "black", linewidth = 0.8) + geom_hline(yintercept = c(-1.96/sqrt(N), 1.96/sqrt(N)), color = "red", linetype = "dashed") +
-    geom_hline(yintercept = 0, color = "black") + labs(title = "Autocorrelation of Innovations", subtitle = "Tests for Unmodeled Kinetics", x = "Lag (Heartbeats)", y = "ACF") + theme_classic()
+    geom_segment(aes(xend = lag, yend = 0),
+                 color = "black",
+                 linewidth = 0.8) +
+    geom_hline(yintercept = c(-1.96/sqrt(N), 1.96/sqrt(N)),
+               color = "red",
+               linetype = "dashed") +
+    geom_hline(yintercept = 0, color = "black") +
+    labs(title = "Autocorrelation of Innovations",
+         subtitle = "Tests for Unmodeled Kinetics",
+         x = "Lag (Heartbeats)",
+         y = "ACF") +
+    theme_classic()
 
   pD <- ggplot(df_qq, aes(x = z)) +
-    geom_histogram(aes(y = after_stat(density)), fill = "#7E6148", alpha = 0.7, bins = 30, color = "white") +
-    stat_function(fun = dnorm, args = list(mean = 0, sd = 1), linewidth = 1.2, color = "black", linetype = "dashed") +
-    labs(title = "Exact Gaussian Innovations", subtitle = "Validating Phase-Domain Linearity", x = "Standardized Residuals", y = "Density") + theme_classic()
+    geom_histogram(aes(y = after_stat(density)),
+                   fill = "#7E6148",
+                   alpha = 0.7, bins = 30, color = "white") +
+    stat_function(fun = dnorm,
+                  args = list(mean = 0, sd = 1),
+                  color = "black",
+                  linetype = "dashed") +
+    labs(title = "Exact Gaussian Innovations",
+         subtitle = "Validating Phase-Domain Linearity",
+         x = "Standardized Residuals",
+         y = "Density") +
+    theme_classic()
 
   (pA | pB) / (pC | pD)
 }
