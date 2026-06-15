@@ -83,8 +83,16 @@ extract_spectral_priors <- function(dy) {
 # ==============================================================================
 # 3. DUAL-FILTER GLS
 # ==============================================================================
-run_gls_filter <- function(dy, kp, ks, lp, lR) {
+run_gls_filter <- function(dy, kp, ks, lp, lR, jump_threshold = 0.20, jump_power = 8) {
   N <- length(dy)
+
+  # +++ ASYMPTOTIC NULL-GAIN GATE +++
+  jump_back <- c(0, abs(diff(dy)) / dy[-N])
+  jump_fwd  <- c(abs(diff(dy)) / dy[-N], 0)
+  J_k <- pmax(jump_back, jump_fwd)
+  gate_multiplier <- 1 + (J_k / jump_threshold)^jump_power
+  # +++++++++++++++++++++++++++++++++
+
   X0 <- matrix(0, 4, 1); Xv <- matrix(0, 4, 1)
   P  <- diag(c(1, 1, 0, 0)); H  <- matrix(c(0, 0, -1, 1), 1, 4)
   S_vec <- numeric(N); v0_vec <- numeric(N); vv_vec <- numeric(N)
@@ -96,6 +104,10 @@ run_gls_filter <- function(dy, kp, ks, lp, lR) {
   for(k in 1:N) {
     dt <- dy[k]
 
+    # +++ DYNAMIC VARIANCE INFLATION +++
+    dynamic_lR <- lR * gate_multiplier[k]
+    # ++++++++++++++++++++++++++++++++++
+
     blk_p <- .compute_ou_block(kp, dt, lp)
     blk_s <- .compute_ou_block(ks, dt, 1.0)
     Phi[1,1] <- exp(-kp * dt); Phi[3,1] <- blk_p$phi_int
@@ -106,7 +118,8 @@ run_gls_filter <- function(dy, kp, ks, lp, lR) {
     X0_pred <- Phi %*% X0; Xv_pred <- Phi %*% Xv
     P_pred  <- Phi %*% P %*% t(Phi) + Q
 
-    S <- as.numeric(H %*% P_pred %*% t(H) + lR * dt)
+    # +++ APPLY TO INNOVATION COVARIANCE +++
+    S <- as.numeric(H %*% P_pred %*% t(H) + dynamic_lR * dt)
     S <- max(S, 1e-12) # Numerical floor
     K <- P_pred %*% t(H) / S
 
@@ -115,7 +128,9 @@ run_gls_filter <- function(dy, kp, ks, lp, lR) {
 
     X0 <- X0_pred + K * v0; Xv <- Xv_pred + K * vv
     I_KH <- diag(4) - K %*% H
-    P <- I_KH %*% P_pred %*% t(I_KH) + K %*% (lR * dt) %*% t(K)
+
+    # +++ APPLY TO POSTERIOR COVARIANCE UPDATE +++
+    P <- I_KH %*% P_pred %*% t(I_KH) + K %*% (dynamic_lR * dt) %*% t(K)
     P <- (P + t(P)) / 2
 
     X0_store[k, ] <- as.numeric(X0)
@@ -132,7 +147,7 @@ run_gls_filter <- function(dy, kp, ks, lp, lR) {
   nu0_hat  <- sum(v0_vec * vv_vec / S_vec) / sum((vv_vec^2) / S_vec)
   v_final  <- v0_vec - nu0_hat * vv_vec
   sig2_hat <- max(mean(v_final^2 / S_vec), 1e-12)
-  LL_star  <- -0.5 * sum(log(S_vec)) - (N / 2) * log(sig2_hat)
+  LL_star  <- -0.5 * sum(log(S_vec)) - (N / 2) * log(sig2_hat) - (N / 2)
 
   # Reconstruct biological states by linear superposition
   states_final <- (X0_store - nu0_hat * Xv_store)
@@ -142,13 +157,14 @@ run_gls_filter <- function(dy, kp, ks, lp, lR) {
        states = states_final, std_innov = std_innov)
 }
 
-objective_map_3d <- function(theta, dy, energy_ratio) {
+objective_map_3d <- function(theta, dy, energy_ratio, jump_threshold, jump_power) {
   ks <- exp(theta[1])
   kp <- ks + exp(theta[2])
   lR <- exp(theta[3])
   lp <- energy_ratio * (kp / ks)
 
-  res <- run_gls_filter(dy, kp, ks, lp, lR)
+  # Pass hyperparameters to the filter
+  res <- run_gls_filter(dy, kp, ks, lp, lR, jump_threshold, jump_power)
 
   pen_ks <- (2 - 1) * log(ks) - 20 * ks
   pen_kp <- (2 - 1) * log(kp) - 2 * kp
@@ -160,13 +176,17 @@ objective_map_3d <- function(theta, dy, energy_ratio) {
 # ==============================================================================
 # 4. OPTIMIZATION ROUTINE
 # ==============================================================================
-fit_model <- function(dy) {
+fit_model <- function(dy, jump_threshold = 0.20, jump_power = 8) {
+  if (any(is.na(dy))) dy <- na.omit(dy)
   priors <- extract_spectral_priors(dy)
   theta_init <- c(log(0.05), log(0.35 - 0.05), log(0.001))
 
   cat("\nRunning 3D BFGS Optimization with MAP Penalties...\n")
   opt_res <- optim(par = theta_init, fn = objective_map_3d, dy = dy,
-                   energy_ratio = priors$energy_ratio, method = "BFGS",
+                   energy_ratio = priors$energy_ratio,
+                   jump_threshold = jump_threshold, # Passed to objective
+                   jump_power = jump_power,         # Passed to objective
+                   method = "BFGS",
                    control = list(maxit = 1000, trace = 1))
 
   # Extract Final Parameters
@@ -176,7 +196,7 @@ fit_model <- function(dy) {
   lp_opt <- priors$energy_ratio * (kp_opt / ks_opt)
 
   # Final pass to extract states & innovations
-  final_res <- run_gls_filter(dy, kp_opt, ks_opt, lp_opt, lR_opt)
+  final_res <- run_gls_filter(dy, kp_opt, ks_opt, lp_opt, lR_opt, jump_threshold, jump_power)
 
   return(list(
     dy = dy, time = cumsum(dy),
@@ -184,7 +204,10 @@ fit_model <- function(dy) {
       ks = ks_opt, kp = kp_opt, lR = lR_opt, lp = lp_opt,
       nu0 = final_res$nu0, sig2 = final_res$sig2,
       sig_p = sqrt(lp_opt * final_res$sig2), sig_s = sqrt(final_res$sig2),
-      energy_ratio = priors$energy_ratio
+      energy_ratio = priors$energy_ratio,
+      # Save hyperparameters for reporting
+      jump_threshold = jump_threshold,
+      jump_power = jump_power
     ),
     states = final_res$states,
     innovations = final_res$std_innov,
@@ -193,7 +216,7 @@ fit_model <- function(dy) {
 }
 
 # ==============================================================================
-# REPORT PARAMETERS
+# 5. REPORT PARAMETERS
 # ==============================================================================
 report_model <- function(fit_obj) {
   if (!requireNamespace("numDeriv", quietly = TRUE)) install.packages("numDeriv")
@@ -210,7 +233,10 @@ report_model <- function(fit_obj) {
     func = objective_map_3d,
     x = theta_opt,
     dy = dy,
-    energy_ratio = p$energy_ratio
+    energy_ratio = p$energy_ratio,
+    # Thread hyperparameters into exact Delta Method
+    jump_threshold = p$jump_threshold,
+    jump_power = p$jump_power
   )
 
   # Safely invert Hessian for covariance matrix
@@ -231,7 +257,6 @@ report_model <- function(fit_obj) {
   se_lR <- sqrt(max(cov_physical[3, 3], 0))
 
   # Delta Method extension for biological time constants (tau = 1/kappa)
-  # d(1/k)/dk = -1/k^2 -> Var(tau) = Var(k) / k^4
   se_taus <- sqrt(max(cov_physical[1, 1] / (p$ks^4), 0))
   se_taup <- sqrt(max(cov_physical[2, 2] / (p$kp^4), 0))
 
@@ -249,7 +274,11 @@ report_model <- function(fit_obj) {
     list(name = "Sigma_P", group = "Volatility", interp = "Absolute amplitude of parasympathetic neural drive", status = "Derived (Spectral)", est = p$sig_p, se = NA),
 
     list(name = "Lambda_P", group = "Ratios", interp = "Vagal-to-Sympathetic energy balance (Parseval anchor)", status = "Profiled (Spectral)", est = p$lp, se = NA),
-    list(name = "Lambda_R", group = "Ratios", interp = "Fraction of variance from SA node threshold jitter", status = "Estimated (MAP)", est = p$lR, se = se_lR)
+    list(name = "Lambda_R", group = "Ratios", interp = "Fraction of variance from SA node threshold jitter", status = "Estimated (MAP)", est = p$lR, se = se_lR),
+
+    # +++ ADD HYPERPARAMETERS TO REPORT +++
+    list(name = "Theta_Jump", group = "Robustness", interp = "Relative fractional jump threshold for outlier rejection", status = "Fixed (Hyper)", est = p$jump_threshold, se = NA),
+    list(name = "Power_Jump", group = "Robustness", interp = "Polynomial steepness of asymptotic null-gain gate", status = "Fixed (Hyper)", est = p$jump_power, se = NA)
   )
 
   # Format into a strictly aligned data frame
@@ -288,7 +317,7 @@ report_model <- function(fit_obj) {
 }
 
 # ==============================================================================
-# VISUALIZATION (Phase Reconstruction & Topology)
+# 6. VISUALIZATION (Phase Reconstruction & Topology)
 # ==============================================================================
 visualize_model <- function(fit_obj) {
   dy <- fit_obj$dy
@@ -398,7 +427,7 @@ visualize_model <- function(fit_obj) {
 }
 
 # ==============================================================================
-# DIAGNOSTICS (Pre-standardized innovations)
+# 7. DIAGNOSTICS (Pre-standardized innovations)
 # ==============================================================================
 diagnose_model <- function(fit_obj) {
   z <- fit_obj$innovations
@@ -470,4 +499,132 @@ diagnose_model <- function(fit_obj) {
     theme_classic()
 
   (pA | pB) / (pC | pD)
+}
+
+# ==============================================================================
+# 8. BATCH PROCESSING & AGGREGATION ENGINE
+# ==============================================================================
+batch_process_hrv <- function(rr_list, jump_threshold = 0.20, jump_power = 8, dataset_tag = "Unknown") {
+  N_batch <- length(rr_list)
+  subj_names <- names(rr_list)
+  if (is.null(subj_names)) subj_names <- paste0("Subject_", seq_len(N_batch))
+
+  # Storage structures
+  summary_rows <- list()
+  states_list <- list()
+  raw_fits <- list()
+
+  cat(sprintf("\nInitializing Batch Processing for Dataset: %s (%d recordings)\n", dataset_tag, N_batch))
+
+  for (i in seq_len(N_batch)) {
+    dy <- rr_list[[i]]
+    s_name <- subj_names[i]
+    cat(sprintf(" Processing [%d/%d]: %s... ", i, N_batch, s_name))
+
+    # Safe execution wrapper
+    fit_res <- tryCatch({
+      fit_model(dy, jump_threshold = jump_threshold, jump_power = jump_power)
+    }, error = function(e) {
+      cat("FAILED\n")
+      return(NULL)
+    })
+
+    if (is.null(fit_res)) next
+    cat("SUCCESS\n")
+
+    p <- fit_res$params
+    raw_fits[[s_name]] <- fit_res
+
+    # Extract Statistical Diagnostics natively matching diagnose_model()
+    z <- fit_res$innovations
+    N_beats <- length(z)
+
+    # 1. Kolmogorov-Smirnov Test (Time-Rescaling Theorem)
+    U_k <- pnorm(z)
+    ks_res <- ks.test(U_k, "punif")
+
+    # 2. Autocorrelation Check (Up to 40 lags)
+    acf_res <- acf(z, lag.max = 40, plot = FALSE)
+    acf_vals <- acf_res$acf[-1] # Remove lag 0 (always 1.0)
+    acf_bound <- 1.96 / sqrt(N_beats)
+    significant_lags <- sum(abs(acf_vals) > acf_bound)
+
+    # Pack Scalar Outputs
+    summary_rows[[s_name]] <- data.frame(
+      Dataset = dataset_tag,
+      SubjectID = s_name,
+      Converged = (fit_res$opt_raw$convergence == 0),
+      Iterations = fit_res$opt_raw$counts[1],
+      NumBeats = N_beats,
+      Nu_0 = p$nu0,
+      Sigma_sys2 = p$sig2,
+      Kappa_S = p$ks,
+      Kappa_P = p$kp,
+      Tau_S = 1 / p$ks,
+      Tau_P = 1 / p$kp,
+      Lambda_R = p$lR,
+      KS_Stat = as.numeric(ks_res$statistic),
+      KS_p_value = as.numeric(ks_res$p.value),
+      ACF_Violations = significant_lags,
+      stringsAsFactors = FALSE
+    )
+
+    # Pack Time-Varying States for Long-Form Pooling
+    states_list[[s_name]] <- data.frame(
+      Dataset = dataset_tag,
+      SubjectID = s_name,
+      Beat = seq_len(N_beats),
+      Time = fit_res$time,
+      RR_Interval = dy,
+      X_p = fit_res$states[, 1],
+      X_s = fit_res$states[, 2],
+      Phase_p = fit_res$states[, 3],
+      Phase_s = fit_res$states[, 4],
+      Innovation = z,
+      stringsAsFactors = FALSE
+    )
+  }
+
+  # Bind into tidy metrics structures
+  summary_df <- do.call(rbind, summary_rows)
+  states_df  <- do.call(rbind, states_list)
+  rownames(summary_df) <- NULL
+  rownames(states_df)  <- NULL
+
+  return(list(
+    summary = summary_df,
+    states = states_df,
+    models = raw_fits
+  ))
+}
+
+# ==============================================================================
+# 9. GROUP METRICS REPORTING UTILITY
+# ==============================================================================
+report_batch_metrics <- function(batch_obj) {
+  df <- batch_obj$summary
+  N <- nrow(df)
+
+  cat("\n=========================================================================\n")
+  cat(sprintf("               BATCH VALIDATION REPORT (Dataset: %s)\n", df$Dataset[1]))
+  cat("=========================================================================\n")
+  cat(sprintf("Total Managed Series      : %d\n", N))
+  cat(sprintf("Optimization Convergence  : %.1f%%\n", (sum(df$Converged) / N) * 100))
+  cat(sprintf("Average Sequence Length   : %.1f beats\n", mean(df$NumBeats)))
+
+  cat("\n--- Statistical Diagnostics (Point-Process Validity) ---\n")
+  alpha_passing <- sum(df$KS_p_value > 0.05)
+  cat(sprintf("Time-Rescaling KS Pass Rate (p > 0.05)   : %.1f%% (Mean Stat: %.4f)\n",
+              (alpha_passing / N) * 100, mean(df$KS_Stat)))
+  cat(sprintf("Mean Whiteness Violations (out of 40)    : %.2f lags\n",
+              mean(df$ACF_Violations)))
+
+  cat("\n--- Kinetic Parameter Estimations (Mean ± SD) ---\n")
+  cat(sprintf("Baseline Pacing (Nu_0)         : %.3f ± %.3f Hz\n", mean(df$Nu_0), sd(df$Nu_0)))
+  cat(sprintf("Sympathetic Clearance (Kappa_S): %.4f ± %.4f Hz (Tau: %.2fs)\n",
+              mean(df$Kappa_S), sd(df$Kappa_S), mean(df$Tau_S)))
+  cat(sprintf("Parasympathetic Clear. (Kappa_P): %.4f ± %.4f Hz (Tau: %.2fs)\n",
+              mean(df$Kappa_P), sd(df$Kappa_P), mean(df$Tau_P)))
+  cat(sprintf("Observation Jitter (Lambda_R)  : %.5f ± %.5f\n", mean(df$Lambda_R), sd(df$Lambda_R)))
+  cat("=========================================================================\n\n")
 }
