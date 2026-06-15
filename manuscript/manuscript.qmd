@@ -103,15 +103,19 @@ To track the integrated autonomic drives demanded by the linearized observation 
 Independently, the instantaneous continuous-time dynamics of the parasympathetic and sympathetic drives are expressed as scalar stochastic differential equations:
 
 $$
+\begin{aligned}
 dx_p(t) = -\kappa_p x_p(t) dt + \sigma_p dW_p(t) \\
 dx_s(t) = -\kappa_s x_s(t) dt + \sigma_s dW_s(t)
+\end{aligned}
 $$
 
 Here, $\kappa_p$ and $\kappa_s$ represent the specific clearance rates or physiological time-constants of the parasympathetic and sympathetic branches, respectively. The volatile continuous diffusions are scaled by $\sigma_p$ and $\sigma_s$, while $W_p(t)$ and $W_s(t)$ represent independent standard Wiener processes. Simultaneously, the exact accumulation of these neural drives over a given cardiac cycle, denoted as $I_p(t)$ and $I_s(t)$, is governed by the continuous integral relationships. Expressed in differential form, these are strictly deterministic with respect to the current state:
 
 $$
+\begin{aligned}
 dI_p(t) = x_p(t) dt \\
 dI_s(t) = x_s(t) dt
+\end{aligned}
 $$
 
 To evaluate this entire system simultaneously, the variables are concatenated into a four-dimensional augmented state vector defined as $\tilde{X}(t) = [x_p(t), x_s(t), I_p(t), I_s(t)]^T$. The governing scalar equations are thus combined into a single system of stochastic differential equations, expressed compactly in matrix notation:

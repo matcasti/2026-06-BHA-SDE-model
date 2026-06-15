@@ -4318,13 +4318,17 @@ T = \inf \{ t &gt; 0 : \phi(t) \ge 1.0 \}
 <p>To track the integrated autonomic drives demanded by the linearized observation equation, the latent state-space must be structurally augmented. The isolated neural drives, <span class="math inline">\(x_p(t)\)</span> and <span class="math inline">\(x_s(t)\)</span>, are mathematically defined as independent, mean-reverting Ornstein-Uhlenbeck processes. These processes reflect the biological tendency of the autonomic branches to return to a homeostatic baseline following transient neurological stimuli. To evaluate the observation equation without relying on discrete Euler integration steps, the state vector is expanded to continuously track both the instantaneous neural drives and their running integrals.</p>
 <p>Independently, the instantaneous continuous-time dynamics of the parasympathetic and sympathetic drives are expressed as scalar stochastic differential equations:</p>
 <p><span class="math display">\[
+\begin{aligned}
 dx_p(t) = -\kappa_p x_p(t) dt + \sigma_p dW_p(t) \\
 dx_s(t) = -\kappa_s x_s(t) dt + \sigma_s dW_s(t)
+\end{aligned}
 \]</span></p>
 <p>Here, <span class="math inline">\(\kappa_p\)</span> and <span class="math inline">\(\kappa_s\)</span> represent the specific clearance rates or physiological time-constants of the parasympathetic and sympathetic branches, respectively. The volatile continuous diffusions are scaled by <span class="math inline">\(\sigma_p\)</span> and <span class="math inline">\(\sigma_s\)</span>, while <span class="math inline">\(W_p(t)\)</span> and <span class="math inline">\(W_s(t)\)</span> represent independent standard Wiener processes. Simultaneously, the exact accumulation of these neural drives over a given cardiac cycle, denoted as <span class="math inline">\(I_p(t)\)</span> and <span class="math inline">\(I_s(t)\)</span>, is governed by the continuous integral relationships. Expressed in differential form, these are strictly deterministic with respect to the current state:</p>
 <p><span class="math display">\[
+\begin{aligned}
 dI_p(t) = x_p(t) dt \\
 dI_s(t) = x_s(t) dt
+\end{aligned}
 \]</span></p>
 <p>To evaluate this entire system simultaneously, the variables are concatenated into a four-dimensional augmented state vector defined as <span class="math inline">\(\tilde{X}(t) = [x_p(t), x_s(t), I_p(t), I_s(t)]^T\)</span>. The governing scalar equations are thus combined into a single system of stochastic differential equations, expressed compactly in matrix notation:</p>
 <p><span class="math display">\[
