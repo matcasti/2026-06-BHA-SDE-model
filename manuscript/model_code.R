@@ -38,7 +38,7 @@ extract_spectral_priors <- function(dy) {
 
   # 3. Integrate Power Over Physiological Bands
   lf_idx <- which(freqs >= 0.04 & freqs < 0.15)
-  hf_idx <- which(freqs >= 0.15 & freqs <= 0.40)
+  hf_idx <- which(freqs >= 0.15 & freqs <= 0.60)
 
   # Because wavelet scales are logarithmic, we multiply the global power
   # by the frequency differential (df) for a true mathematical integral.
@@ -64,7 +64,7 @@ extract_spectral_priors <- function(dy) {
   x <- k * dt
 
   if (x < 1e-3) {
-    # Exact Taylor series limits to prevent floating point zeros
+    # Taylor series limits to prevent floating point zeros
     phi_int <- dt - (k * dt^2)/2 + (k^2 * dt^3)/6
     q11 <- sig2 * (dt - k * dt^2 + (2 * k^2 * dt^3)/3)
     q13 <- sig2 * ((dt^2)/2 - (k * dt^3)/2 + (7 * k^2 * dt^4)/24)
@@ -81,32 +81,49 @@ extract_spectral_priors <- function(dy) {
 }
 
 # ==============================================================================
-# 3. DUAL-FILTER GLS
+# 3. DUAL-FILTER GLS (Robustified with Asymptotic Null-Gain Coasting + RTS)
 # ==============================================================================
-run_gls_filter <- function(dy, kp, ks, lp, lR, jump_threshold = 0.20, jump_power = 8) {
+run_gls_filter <- function(dy, kp, ks, lp, lR, jump_threshold, jump_power, smooth) {
   N <- length(dy)
 
-  # +++ ASYMPTOTIC NULL-GAIN GATE +++
-  jump_back <- c(0, abs(diff(dy)) / dy[-N])
-  jump_fwd  <- c(abs(diff(dy)) / dy[-N], 0)
-  J_k <- pmax(jump_back, jump_fwd)
+  # ASYMPTOTIC NULL-GAIN GATE (Numerically Safe)
+  dy_safe <- pmax(dy[-N], 1e-6)
+
+  jump_back <- c(0, abs(diff(dy)) / dy_safe)
+  jump_fwd  <- c(abs(diff(dy)) / dy_safe, 0)
+
+  J_k <- pmax(jump_back, jump_fwd, na.rm = TRUE)
   gate_multiplier <- 1 + (J_k / jump_threshold)^jump_power
-  # +++++++++++++++++++++++++++++++++
+
+  # Cap the multiplier at 10 billion. This mathematically severs the Kalman
+  # update but prevents R from evaluating (0 * Inf) to NaN in the covariance step.
+  gate_multiplier[!is.finite(gate_multiplier)] <- 1e10
+  gate_multiplier <- pmin(gate_multiplier, 1e10)
 
   X0 <- matrix(0, 4, 1); Xv <- matrix(0, 4, 1)
   P  <- diag(c(1, 1, 0, 0)); H  <- matrix(c(0, 0, -1, 1), 1, 4)
   S_vec <- numeric(N); v0_vec <- numeric(N); vv_vec <- numeric(N)
+  S_ungated_vec <- numeric(N)
 
-  # Storage for state reconstruction
+  # Storage for forward state reconstruction
   X0_store <- matrix(0, N, 4); Xv_store <- matrix(0, N, 4)
+
+  # +++ RTS SMOOTHER CONDITIONAL STORAGE +++
+  if (smooth) {
+    if (!requireNamespace("MASS", quietly = TRUE)) install.packages("MASS")
+    X0_pred_store <- matrix(0, N, 4)
+    Xv_pred_store <- matrix(0, N, 4)
+    P_pred_store  <- array(0, dim=c(4, 4, N))
+    P_post_store  <- array(0, dim=c(4, 4, N))
+    Phi_store     <- array(0, dim=c(4, 4, N))
+  }
+  # ++++++++++++++++++++++++++++++++++++++++
+
   Phi <- matrix(0, 4, 4); Q <- matrix(0, 4, 4)
 
   for(k in 1:N) {
     dt <- dy[k]
-
-    # +++ DYNAMIC VARIANCE INFLATION +++
-    dynamic_lR <- lR * gate_multiplier[k]
-    # ++++++++++++++++++++++++++++++++++
+    dynamic_lR <- min(lR * gate_multiplier[k], 1e12, na.rm = TRUE)
 
     blk_p <- .compute_ou_block(kp, dt, lp)
     blk_s <- .compute_ou_block(ks, dt, 1.0)
@@ -118,10 +135,12 @@ run_gls_filter <- function(dy, kp, ks, lp, lR, jump_threshold = 0.20, jump_power
     X0_pred <- Phi %*% X0; Xv_pred <- Phi %*% Xv
     P_pred  <- Phi %*% P %*% t(Phi) + Q
 
-    # +++ APPLY TO INNOVATION COVARIANCE +++
     S <- as.numeric(H %*% P_pred %*% t(H) + dynamic_lR * dt)
-    S <- max(S, 1e-12) # Numerical floor
+    S <- max(S, 1e-12)
     K <- P_pred %*% t(H) / S
+
+    S_true <- as.numeric(H %*% P_pred %*% t(H) + lR * dt)
+    S_ungated_vec[k] <- max(S_true, 1e-12)
 
     v0 <- 1.0 - as.numeric(H %*% X0_pred)
     vv <- dt  - as.numeric(H %*% Xv_pred)
@@ -129,12 +148,21 @@ run_gls_filter <- function(dy, kp, ks, lp, lR, jump_threshold = 0.20, jump_power
     X0 <- X0_pred + K * v0; Xv <- Xv_pred + K * vv
     I_KH <- diag(4) - K %*% H
 
-    # +++ APPLY TO POSTERIOR COVARIANCE UPDATE +++
     P <- I_KH %*% P_pred %*% t(I_KH) + K %*% (dynamic_lR * dt) %*% t(K)
     P <- (P + t(P)) / 2
 
     X0_store[k, ] <- as.numeric(X0)
     Xv_store[k, ] <- as.numeric(Xv)
+
+    # +++ RTS SMOOTHER CONTINUOUS LOGGING +++
+    if (smooth) {
+      X0_pred_store[k, ] <- as.numeric(X0_pred)
+      Xv_pred_store[k, ] <- as.numeric(Xv_pred)
+      P_pred_store[,,k]  <- P_pred
+      P_post_store[,,k]  <- P
+      Phi_store[,,k]     <- Phi
+    }
+    # +++++++++++++++++++++++++++++++++++++++
 
     # BOUNDARY RESET
     X0[3:4,] <- 0; Xv[3:4,] <- 0
@@ -143,40 +171,108 @@ run_gls_filter <- function(dy, kp, ks, lp, lR, jump_threshold = 0.20, jump_power
     S_vec[k] <- S; v0_vec[k] <- v0; vv_vec[k] <- vv
   }
 
-  # Analytical Marginalizations
-  nu0_hat  <- sum(v0_vec * vv_vec / S_vec) / sum((vv_vec^2) / S_vec)
+  # Analytical Marginalizations (Underflow Guarded)
+  den_nu <- sum((vv_vec^2) / S_vec, na.rm = TRUE)
+  nu0_hat <- if (is.finite(den_nu) && den_nu > 1e-12) sum(v0_vec * vv_vec / S_vec, na.rm = TRUE) / den_nu else 0
+
   v_final  <- v0_vec - nu0_hat * vv_vec
   sig2_hat <- max(mean(v_final^2 / S_vec), 1e-12)
-  LL_star  <- -0.5 * sum(log(S_vec)) - (N / 2) * log(sig2_hat) - (N / 2)
+  LL_star  <- -0.5 * sum(log(S_vec)) - (N / 2) * log(sig2_hat)
 
-  # Reconstruct biological states by linear superposition
+  # Reconstruct forward biological states
   states_final <- (X0_store - nu0_hat * Xv_store)
   std_innov <- v_final / sqrt(S_vec * sig2_hat)
 
+  std_innov_diagnostic <- v_final / sqrt(S_ungated_vec * sig2_hat)
+  implied_rr <- (1.0 + states_final[,3] - states_final[,4]) / nu0_hat
+  time_residuals <- dy - implied_rr
+
+  # RTS BACKWARD PASS
+  if (smooth) {
+    # Superimpose predictions utilizing the profiled baseline
+    X_pred_combined <- X0_pred_store - nu0_hat * Xv_pred_store
+    X_smooth <- matrix(0, N, 4)
+
+    # Initialize the backward recursion with the final forward state
+    X_smooth[N, ] <- states_final[N, ]
+
+    for (k in (N-1):1) {
+      # 1. Safe Inversion Fallback
+      P_pred_inv <- tryCatch({
+        MASS::ginv(P_pred_store[,, k+1])
+      }, error = function(e) {
+        # If SVD fails due to extreme scaling or an isolated NaN, return a zero matrix
+        matrix(0, 4, 4)
+      })
+
+      # 2. Backward Gain
+      J_k <- P_post_store[,, k] %*% t(Phi_store[,, k+1]) %*% P_pred_inv
+
+      # 3. Guard against NA propagation from the forward states
+      state_diff <- matrix(X_smooth[k+1, ] - X_pred_combined[k+1, ], 4, 1)
+      if (any(!is.finite(state_diff)) || any(!is.finite(J_k))) {
+        J_k <- matrix(0, 4, 4)
+      }
+
+      # 4. Smooth the state (If J_k is 0, it safely accepts the forward filtered state)
+      X_smooth[k, ] <- states_final[k, ] + as.numeric(J_k %*% state_diff)
+    }
+
+    # Append to output array
+    out_states <- cbind(states_final, X_smooth[, 1:2])
+    colnames(out_states) <- c("X_p", "X_s", "Phase_p", "Phase_s", "X_p_smooth", "X_s_smooth")
+
+    return(list(LL_star = LL_star, nu0 = nu0_hat, sig2 = sig2_hat,
+                states = out_states, std_innov = std_innov,
+                innovations_diagnostic = std_innov_diagnostic,
+                time_residuals = time_residuals,
+                gate_multiplier = gate_multiplier))
+  }
+  # ++++++++++++++++++++++++++++++++++++++++
+
   list(LL_star = LL_star, nu0 = nu0_hat, sig2 = sig2_hat,
-       states = states_final, std_innov = std_innov)
+       states = states_final, std_innov = std_innov,
+       innovations_diagnostic = std_innov_diagnostic,
+       time_residuals = time_residuals,
+       gate_multiplier = gate_multiplier)
 }
 
-objective_map_3d <- function(theta, dy, energy_ratio, jump_threshold, jump_power) {
+# ==============================================================================
+# MAP OBJECTIVE FUNCTION
+# ==============================================================================
+objective_map_3d <- function(theta, dy, energy_ratio, jump_threshold, jump_power, smooth) {
   ks <- exp(theta[1])
   kp <- ks + exp(theta[2])
   lR <- exp(theta[3])
   lp <- energy_ratio * (kp / ks)
 
   # Pass hyperparameters to the filter
-  res <- run_gls_filter(dy, kp, ks, lp, lR, jump_threshold, jump_power)
+  res <- run_gls_filter(dy, kp, ks, lp, lR, jump_threshold, jump_power, smooth)
 
-  pen_ks <- (2 - 1) * log(ks) - 20 * ks
-  pen_kp <- (2 - 1) * log(kp) - 2 * kp
-  pen_lR <- -(1.1 + 1) * log(lR) - (1e-4) / lR
+  # ----------------------------------------------------------------------------
+  # Maximum A Posteriori (MAP) Priors
+  # ----------------------------------------------------------------------------
 
+  # Sympathetic: Mode = 0.10Hz, Strength = 3 (Lower strength = more diffuse)
+  ks_mode <- 0.10; ks_strength <- 3.0
+  pen_ks  <- (ks_strength) * log(ks) - (ks_strength/ks_mode) * ks
+
+  # Vagal: Mode = 1.25Hz, Strength = 5 (Higher strength = more concentrated)
+  kp_mode <- 1.25; kp_strength <- 5.0
+  pen_kp  <- (kp_strength) * log(kp) - (kp_strength/kp_mode) * kp
+
+  # Jitter: Mode = 0.0003, Shape = 2.0 (Higher shape = steeper descent from mode)
+  lR_mode <- 0.0003; lR_shape <- 2.0
+  pen_lR  <- -(lR_shape + 1) * log(lR) - (lR_mode * (lR_shape + 1)) / lR
+
+  # Return negative log-posterior (Cost function to minimize)
   return(-(res$LL_star + pen_ks + pen_kp + pen_lR))
 }
 
 # ==============================================================================
 # 4. OPTIMIZATION ROUTINE
 # ==============================================================================
-fit_model <- function(dy, jump_threshold = 0.20, jump_power = 8) {
+fit_model <- function(dy, jump_threshold = 0.15, jump_power = 8, smooth = TRUE) {
   if (any(is.na(dy))) dy <- na.omit(dy)
   priors <- extract_spectral_priors(dy)
   theta_init <- c(log(0.05), log(0.35 - 0.05), log(0.001))
@@ -184,8 +280,9 @@ fit_model <- function(dy, jump_threshold = 0.20, jump_power = 8) {
   cat("\nRunning 3D BFGS Optimization with MAP Penalties...\n")
   opt_res <- optim(par = theta_init, fn = objective_map_3d, dy = dy,
                    energy_ratio = priors$energy_ratio,
-                   jump_threshold = jump_threshold, # Passed to objective
-                   jump_power = jump_power,         # Passed to objective
+                   jump_threshold = jump_threshold,
+                   jump_power = jump_power,
+                   smooth = smooth,
                    method = "BFGS",
                    control = list(maxit = 1000, trace = 1))
 
@@ -196,7 +293,7 @@ fit_model <- function(dy, jump_threshold = 0.20, jump_power = 8) {
   lp_opt <- priors$energy_ratio * (kp_opt / ks_opt)
 
   # Final pass to extract states & innovations
-  final_res <- run_gls_filter(dy, kp_opt, ks_opt, lp_opt, lR_opt, jump_threshold, jump_power)
+  final_res <- run_gls_filter(dy, kp_opt, ks_opt, lp_opt, lR_opt, jump_threshold, jump_power, smooth)
 
   return(list(
     dy = dy, time = cumsum(dy),
@@ -211,6 +308,9 @@ fit_model <- function(dy, jump_threshold = 0.20, jump_power = 8) {
     ),
     states = final_res$states,
     innovations = final_res$std_innov,
+    innovations_diagnostic = final_res$innovations_diagnostic,
+    time_residuals = final_res$time_residuals,
+    gate_multiplier = final_res$gate_multiplier,
     opt_raw = opt_res
   ))
 }
@@ -218,7 +318,7 @@ fit_model <- function(dy, jump_threshold = 0.20, jump_power = 8) {
 # ==============================================================================
 # 5. REPORT PARAMETERS
 # ==============================================================================
-report_model <- function(fit_obj) {
+report_model <- function(fit_obj, smooth = TRUE) {
   if (!requireNamespace("numDeriv", quietly = TRUE)) install.packages("numDeriv")
   if (!requireNamespace("MASS", quietly = TRUE)) install.packages("MASS")
 
@@ -236,7 +336,8 @@ report_model <- function(fit_obj) {
     energy_ratio = p$energy_ratio,
     # Thread hyperparameters into exact Delta Method
     jump_threshold = p$jump_threshold,
-    jump_power = p$jump_power
+    jump_power = p$jump_power,
+    smooth = smooth
   )
 
   # Safely invert Hessian for covariance matrix
@@ -352,43 +453,24 @@ visualize_model <- function(fit_obj) {
     theme(legend.title = element_blank(),
           legend.position = "top")
 
-  Z_bal <- X_p - X_s
-  Z_tot <- X_s + X_p
-  df_Z <- data.frame(
-    Time = rep(time_cum, 2), Value = c(Z_bal, Z_tot),
-    State = factor(rep(c("Autonomic Balance (p - s)", "Total Tone (p + s)"), each = N))
-  )
-
-  pB <- ggplot(df_Z, aes(x = Time, y = Value, color = State)) +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
-    geom_line(linewidth = 1/3) +
-    scale_color_manual(values = c("Autonomic Balance (p - s)" = "#4DBBD5",
-                                  "Total Tone (p + s)" = "#00A087")) +
-    labs(title = "Geometric Projections",
-         y = "Amplitude (Hz)",
-         x = "") +
-    theme_classic() +
-    theme(legend.title = element_blank(),
-          legend.position = "top")
-
   df_X <- data.frame(
     Time = rep(time_cum, 2), Value = c(X_p, X_s),
     State = factor(rep(c("Parasympathetic Drive", "Sympathetic Drive"), each = N),
                    levels = c("Sympathetic Drive", "Parasympathetic Drive"))
   )
 
-  pC <- ggplot(df_X, aes(x = Time, y = Value, color = State)) +
+  pB <- ggplot(df_X, aes(x = Time, y = Value, color = State)) +
     geom_hline(yintercept = 0, linetype = "dashed",
                color = "black", alpha = 0.5) +
     geom_line(linewidth = 1/3) +
-    scale_color_manual(values = c("Parasympathetic Drive" = "#3C5488",
-                                  "Sympathetic Drive" = "#DC0000")) +
+    scale_color_manual(values = c("Parasympathetic Drive" = "#4DB0D0",
+                                  "Sympathetic Drive" = "#DC5050")) +
     labs(title = "Native Autonomic Drivers (Direct Tracking)",
          y = "Amplitude (Hz)",
          x = "Time (seconds)") +
     theme_classic() +
     theme(legend.title = element_blank(),
-          legend.position = "bottom")
+          legend.position = "top")
 
   # 2. DYNAMIC ENERGY MAP FRAMING
   Sigma_stat <- diag(c(p$sig_p^2 / (2 * p$kp), p$sig_s^2 / (2 * p$ks)))
@@ -408,7 +490,7 @@ visualize_model <- function(fit_obj) {
 
   df_traj <- data.frame(X_p = X_p, X_s = X_s, Time = time_cum)
 
-  pD <- ggplot() +
+  pC <- ggplot() +
     geom_raster(data = grid, aes(x = X_p, y = X_s, fill = Energy)) +
     geom_contour(data = grid, aes(x = X_p, y = X_s, z = Energy), color = "white", alpha = 0.2, bins = 20) +
     geom_path(data = df_traj, aes(x = X_p, y = X_s, color = Time),
@@ -421,16 +503,21 @@ visualize_model <- function(fit_obj) {
          x = "Parasympathetic Drive (Hz)",
          y = "Sympathetic Drive (Hz)") +
     theme_classic() +
-    theme(legend.position = "bottom")
+    theme(legend.position = "top")
 
-  (pA / pB / pC) | pD
+  (pA / pB) | pC
 }
 
 # ==============================================================================
 # 7. DIAGNOSTICS (Pre-standardized innovations)
 # ==============================================================================
 diagnose_model <- function(fit_obj) {
-  z <- fit_obj$innovations
+  z_raw <- fit_obj$innovations_diagnostic
+  gate <- fit_obj$gate_multiplier
+
+  # Only run diagnostics on physiologically valid (non-gated) beats
+  valid_idx <- which(gate < 1.5)
+  z <- z_raw[valid_idx]
   U_k <- pnorm(z)
   N <- length(U_k)
 
@@ -458,8 +545,6 @@ diagnose_model <- function(fit_obj) {
     geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
     geom_abline(slope = 1, intercept = bound, color = "gray", linetype = "dotted", linewidth=0.8) +
     geom_abline(slope = 1, intercept = -bound, color = "gray", linetype = "dotted", linewidth=0.8) +
-    annotate("text", x = 0.2, y = 0.9, label = paste("KS Stat:", round(ks_stat, 4)), hjust = 0) +
-    annotate("text", x = 0.2, y = 0.8, label = paste("p-value:", round(p_val, 4)), hjust = 0) +
     coord_cartesian(ylim = c(0, 1), xlim = c(0, 1)) +
     labs(title = "Time-Rescaling KS-Plot",
          subtitle = "Validates Exact IPFM Boundary Crossings",
@@ -504,7 +589,7 @@ diagnose_model <- function(fit_obj) {
 # ==============================================================================
 # 8. BATCH PROCESSING & AGGREGATION ENGINE
 # ==============================================================================
-batch_process_hrv <- function(rr_list, jump_threshold = 0.20, jump_power = 8, dataset_tag = "Unknown") {
+batch_process_hrv <- function(rr_list, jump_threshold = 0.15, jump_power = 8, dataset_tag = "Unknown") {
   N_batch <- length(rr_list)
   subj_names <- names(rr_list)
   if (is.null(subj_names)) subj_names <- paste0("Subject_", seq_len(N_batch))

@@ -118,7 +118,7 @@ $$
 \hat{X}_{final} = X^{(0)} - \hat{\nu}_0 X^{(\nu)}
 $$
 
-# Unconstrained optimization space
+## Unconstrained optimization space
 
 The numerical parameter estimation relies on a bounded Broyden-Fletcher-Goldfarb-Shanno optimization algorithm. The algorithm searches an unconstrained three-dimensional Euclidean space, denoted by the vector $\theta$. The elements of $\theta$ are mapped to the physical parameters through exponential transformations. The sympathetic clearance rate is mapped as $\kappa_s = \exp(\theta_1)$. The structural identifiability constraint dictating that vagal kinetics must operate faster than sympathetic kinetics is enforced via the mapping $\kappa_p = \kappa_s + \exp(\theta_2)$. The fractional threshold noise is mapped as $\lambda_R = \exp(\theta_3)$.
 

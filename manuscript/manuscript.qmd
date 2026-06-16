@@ -184,6 +184,12 @@ To-do: show Fantasia results, establishing the baseline values for $\kappa_p, \k
 
 ## Dynamic autonomic reactivity
 
+![](_example_fig.png){width=100%}
+: Tilt-table test recording from PRCP dataset, reconstructed latent states and diagnostic plots.
+
+![](_example_fig2.png){width=100%}
+: Two-minute step test recording from the TMST dataset, reconstructed latent states and diagnostic plots.
+
 To-do: show the PRCP and Step-Test time-series. Use the phase-space topology plots here; they are highly novel and visually striking for journals.
 
 ## Comparative resolution 

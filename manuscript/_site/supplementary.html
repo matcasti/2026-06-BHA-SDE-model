@@ -9,7 +9,7 @@
 <meta name="author" content="Matías Castillo-Aguilar">
 <meta name="author" content="Noah Beelders">
 <meta name="author" content="Cristian Núñez-Espinosa">
-<meta name="dcterms.date" content="2026-06-15">
+<meta name="dcterms.date" content="2026-06-16">
 
 <title>Latent Stochastic Differential Equation Phase-Domain State-Space Framework for Cardiac Autonomic Neuroscience – Phase-Domain State-Space Framework</title>
 <style>
@@ -4195,7 +4195,7 @@ window.Quarto = {
                 <div>
             <div class="quarto-title-meta-heading">Published</div>
             <div class="quarto-title-meta-contents">
-              <p class="date">June 15, 2026</p>
+              <p class="date">June 16, 2026</p>
             </div>
           </div>
           
@@ -4224,8 +4224,8 @@ window.Quarto = {
   <li><a href="#deterministic-spectral-anchor" id="toc-deterministic-spectral-anchor" class="nav-link" data-scroll-target="#deterministic-spectral-anchor"><span class="header-section-number">2.1</span> Deterministic spectral anchor</a></li>
   <li><a href="#evaluation-of-the-continuous-time-transitions" id="toc-evaluation-of-the-continuous-time-transitions" class="nav-link" data-scroll-target="#evaluation-of-the-continuous-time-transitions"><span class="header-section-number">2.2</span> Evaluation of the continuous-time transitions</a></li>
   <li><a href="#kalman-covariance-updates" id="toc-kalman-covariance-updates" class="nav-link" data-scroll-target="#kalman-covariance-updates"><span class="header-section-number">2.3</span> Kalman covariance updates</a></li>
+  <li><a href="#unconstrained-optimization-space" id="toc-unconstrained-optimization-space" class="nav-link" data-scroll-target="#unconstrained-optimization-space"><span class="header-section-number">2.4</span> Unconstrained optimization space</a></li>
   </ul></li>
-  <li><a href="#unconstrained-optimization-space" id="toc-unconstrained-optimization-space" class="nav-link" data-scroll-target="#unconstrained-optimization-space"><span class="header-section-number">3</span> Unconstrained optimization space</a></li>
   </ul>
 </nav>
     </div>
@@ -4304,9 +4304,8 @@ P_{k|k} = (I - K_k H) P_{k|k-1} (I - K_k H)^T + K_k R_k K_k^T
 \hat{X}_{final} = X^{(0)} - \hat{\nu}_0 X^{(\nu)}
 \]</span></p>
 </section>
-</section>
-<section id="unconstrained-optimization-space" class="level1" data-number="3">
-<h1 data-number="3"><span class="header-section-number">3</span> Unconstrained optimization space</h1>
+<section id="unconstrained-optimization-space" class="level2" data-number="2.4">
+<h2 data-number="2.4" class="anchored" data-anchor-id="unconstrained-optimization-space"><span class="header-section-number">2.4</span> Unconstrained optimization space</h2>
 <p>The numerical parameter estimation relies on a bounded Broyden-Fletcher-Goldfarb-Shanno optimization algorithm. The algorithm searches an unconstrained three-dimensional Euclidean space, denoted by the vector <span class="math inline">\(\theta\)</span>. The elements of <span class="math inline">\(\theta\)</span> are mapped to the physical parameters through exponential transformations. The sympathetic clearance rate is mapped as <span class="math inline">\(\kappa_s = \exp(\theta_1)\)</span>. The structural identifiability constraint dictating that vagal kinetics must operate faster than sympathetic kinetics is enforced via the mapping <span class="math inline">\(\kappa_p = \kappa_s + \exp(\theta_2)\)</span>. The fractional threshold noise is mapped as <span class="math inline">\(\lambda_R = \exp(\theta_3)\)</span>.</p>
 <p>The objective function evaluates the negative regularized log-posterior. The profiled log-likelihood <span class="math inline">\(\mathcal{L}^*\)</span> is formulated exclusively from the innovation variance and the analytically derived global system volatility:</p>
 <p><span class="math display">\[
@@ -4318,6 +4317,7 @@ P_{k|k} = (I - K_k H) P_{k|k-1} (I - K_k H)^T + K_k R_k K_k^T
 \]</span></p>
 
 
+</section>
 </section>
 
 </main> <!-- /main -->
