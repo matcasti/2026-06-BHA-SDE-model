@@ -221,7 +221,7 @@ evaluate_penalized_nll <- function(theta, log_rr_ts, lambda = 0) {
   return(base_nll + lambda * (theta[3]^2))
 }
 
-fit_autonomic_model <- function(rr_ts, lambda = 0) {
+fit_model <- function(rr_ts, lambda = 0) {
   log_rr_ts <- log(rr_ts)
 
   init_theta1 <- asin(sqrt((1.0 - 0.3) / (2.0 - 0.3)))
@@ -278,7 +278,7 @@ get_model_ci <- function(fit_result) {
                     Std_Error = phys_se, CI_Lower = ci_lower, CI_Upper = ci_upper))
 }
 
-report_fit <- function(fit_result) {
+report_model <- function(fit_result) {
   if (all(is.na(fit_result$par))) return(data.frame(Message = "Optimization Failed"))
   phys_ci <- get_model_ci(fit_result)
   interpretations <- c("Vagal Recovery (beats)", "Sympathetic Recovery (beats)", "Cross-talk Coupling Fraction",
@@ -293,7 +293,7 @@ report_fit <- function(fit_result) {
 # MODULE 7: DIAGNOSTIC GRAPHICS & POST-PASS ANALYTICS
 # ==============================================================================
 
-visualize_autonomic_model <- function(fit_result, rr_ts) {
+visualize_model <- function(fit_result, rr_ts) {
   if (!requireNamespace("patchwork", quietly = TRUE)) stop("Install 'patchwork'")
   require(ggplot2); require(patchwork)
 
@@ -390,7 +390,7 @@ visualize_autonomic_model <- function(fit_result, rr_ts) {
   return(dashboard)
 }
 
-diagnose_autonomic_model <- function(fit_result, rr_ts) {
+diagnose_model <- function(fit_result, rr_ts) {
   if (!requireNamespace("patchwork", quietly = TRUE)) stop("Install 'patchwork'")
   require(ggplot2); require(patchwork)
 
