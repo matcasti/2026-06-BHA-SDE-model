@@ -1,29 +1,5 @@
 ---
 title: "Latent Stochastic Differential Equation Phase-Domain State-Space Framework for Cardiac Autonomic Neuroscience"
-date: today
-author: 
-  - name: "Matías Castillo-Aguilar"
-    affiliation: "Escuela de Medicina, Universidad de Magallanes, Punta Arenas, Chile."
-    orcid: "0000-0001-7291-247X"
-  - name: "Noah Beelders"
-    affiliation: "Department of Mathematics, University of Munich, Theresienstraße 39, 80333 Munich, Germany."
-  - name: "Cristian Núñez-Espinosa"
-    affiliation: "Escuela de Medicina, Universidad de Magallanes, Punta Arenas, Chile."
-bibliography: citations.bib
-toc: true
-number-sections: true
-format: 
-  html:
-    theme: 
-      light: Yeti
-      dark: Solar
-    title-block-style: manuscript
-    embed-resources: true
-    resources: [model_code.R]
-    code-links: 
-      - text: Model (R script)
-        href: model_code.R
-        icon: file-code
 ---
 
 # Asymptotic convergence of the phase-domain mapping
@@ -40,7 +16,7 @@ where $\Phi(\cdot)$ denotes the standard normal cumulative distribution function
 
 First, the phase-snapshot term $\Phi\left( \frac{\nu t - 1.0}{\sigma \sqrt{t}} \right)$, which represents the unconstrained probability that the continuous process is located above the threshold at the exact temporal slice $t$. This term maps directly to the linear Gaussian observation equation utilized in our phase-domain inversion. Second, the boundary-reflection correction $\exp\left( \frac{2\nu}{\sigma^2} \right) \Phi\left( \frac{-\nu t - 1.0}{\sigma \sqrt{t}} \right)$, which serves as a mathematical penalty accounting exclusively for the sub-population of sample paths that crossed the absorbing boundary prior to time $t$ but subsequently diffused back below the threshold.
 
-The mathematical validity of omitting the boundary-reflection correction depends entirely on the biological regime of the physical system. In cardiac electrophysiology, the intrinsic depolarization of pacemaker cells is dictated by a massive, highly directed ionic current relative to microscopic thermodynamic perturbations. Consequently, the sinoatrial node operates within a high-drift, low-noise regime, characterized by a large effective Péclet number ($\mathrm{Pe} = \frac{\nu}{\sigma^2} \gg 1$).
+The mathematical validity of omitting the boundary-reflection correction depends entirely on the biological regime of the physical system. In cardiac electrophysiology, the intrinsic depolarization of pacemaker cells is dictated by a massive, highly directed ionic current relative to microscopic thermodynamic perturbations. Consequently, the sinoatrial node operates within a high-drift, low-noise regime, characterized by a large dimensionless drift-to-diffusion ratio ($\mathrm{Pe} = \frac{\nu}{\sigma} \gg 1$, where $\sigma$ is the diffusion coefficient at unit threshold).
 
 Under these physiological parameters, we evaluate the behavior of the correction term. Because both the net drift rate $\nu$ and the normalized threshold are strictly positive, the argument of the normal CDF in the reflection term is deeply negative for all valid temporal intervals:
 
@@ -86,7 +62,7 @@ $$
 Q_{3,3} = \frac{\sigma^2}{\kappa^2} \left[ \Delta t_k - \frac{2}{\kappa}(1 - e^{-\kappa \Delta t_k}) + \frac{1}{2\kappa}(1 - e^{-2\kappa \Delta t_k}) \right]
 $$
 
-When the observation interval or the clearance rate causes $x < 10^{-3}$, the algorithm transitions to a truncated Taylor series expansion. This substitution bypasses the exponential subtractions entirely, ensuring that the process covariance matrices remain strictly positive semi-definite near the limit boundary:
+When the observation interval or the clearance rate causes $x < 10^{-3}$, the algorithm transitions to a truncated Taylor series expansion to the marginal components of the process covariance matrix $Q_k$. This substitution bypasses the exponential subtractions entirely, ensuring that the process covariance matrices remain strictly positive semi-definite near the limit boundary:
 
 $$
 Q_{3,3} \approx \sigma^2 \left[ \frac{\Delta t_k^3}{3} - \frac{\kappa \Delta t_k^4}{4} + \frac{7\kappa^2 \Delta t_k^5}{60} \right]
@@ -100,7 +76,7 @@ $$
 P_{k|k} = (I - K_k H) P_{k|k-1} (I - K_k H)^T + K_k R_k K_k^T
 $$
 
-where $K_k$ is the Kalman gain, $H$ is the observation matrix, and $R_k$ is the threshold noise variance parameterized as $\lambda_R \Delta t_k$. This algebraic structure guarantees that the covariance matrix $P_{k|k}$ remains symmetric and positive semi-definite regardless of the numerical magnitude of the measurement updates. Explicit structural symmetry is subsequently enforced by averaging the matrix with its own transpose. Following this update, the sinoatrial node repolarization is modeled by setting the third and fourth dimensions of the state vectors and the covariance matrix exactly to zero.
+where $K_k$ is the Kalman gain, $H$ is the observation matrix, and $R_k$ is the total observation variance, defined as $R_k = \lambda_R \Delta t_k + H Q_{k} H^T$, where $Q_k$ is the propagated process covariance of the integrated autonomic states. This definition ensures the measurement model accounts for both the intrinsic threshold jitter and the stochastic uncertainty accumulated by the autonomic drift-diffusion process over the interval. This algebraic structure guarantees that the covariance matrix $P_{k|k}$ remains symmetric and positive semi-definite regardless of the numerical magnitude of the measurement updates. Explicit structural symmetry is subsequently enforced by averaging the matrix with its own transpose. Following this update, the sinoatrial node repolarization is modeled by setting the third and fourth dimensions of the state vectors and the covariance matrix exactly to zero.
 
 At the conclusion of the filtering sequence of length $N$, the optimal baseline intrinsic drift $\hat{\nu}_0$ and the global system volatility $\hat{\sigma}_{sys}^2$ are computed using the stored arrays of the stochastic innovations $v^{(0)}$, the deterministic responses $v^{(\nu)}$, and the sequential innovation variances $S$:
 

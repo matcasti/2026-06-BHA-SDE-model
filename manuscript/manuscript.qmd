@@ -1,34 +1,5 @@
 ---
 title: "Latent Stochastic Differential Equation Phase-Domain State-Space Framework for Cardiac Autonomic Neuroscience"
-date: today
-author: 
-  - name: "Matías Castillo-Aguilar"
-    affiliation: "Escuela de Medicina, Universidad de Magallanes, Punta Arenas, Chile."
-    orcid: "0000-0001-7291-247X"
-  - name: "Noah Beelders"
-    affiliation: "Department of Mathematics, University of Munich, Theresienstraße 39, 80333 Munich, Germany."
-  - name: "Cristian Núñez-Espinosa"
-    affiliation: "Escuela de Medicina, Universidad de Magallanes, Punta Arenas, Chile."
-bibliography: citations.bib
-toc: true
-
-number-sections: true
-format: 
-  html:
-    theme: 
-      light: Yeti
-      dark: Solar
-    title-block-style: manuscript
-    embed-resources: true
-    output-file: index.html
-    resources: [model_code.R]
-    code-links: 
-      - text: Supplementary material
-        href: supplementary.html
-        icon: file-earmark-text
-      - text: Model (R script)
-        href: model_code.R
-        icon: code
 ---
 
 ```{r}
@@ -82,11 +53,13 @@ Solving the boundary-crossing problem for this stochastic process yields a proba
 
 To bypass the non-linearities inherent in estimating the first-passage time, we execute a structural coordinate inversion. The mathematical limitation of the classical approach stems from treating the time variable $T$ as the random observation evaluated against a fixed phase boundary. We reverse this relationship. Rather than conditioning the estimator on the boundary to predict the time elapsed, we condition the estimator on the observed time elapsed to evaluate the accumulated phase. Therefore, we adopt a physiologically equivalent terminal‑threshold model: a heartbeat is triggered exactly when the accumulated phase reaches the threshold at the end of the observed interval, which for high‑drift, low‑noise regimes is indistinguishable from the strict first‑passage process (see Supplementary Justification). This replacement yields an exact, conditionally Gaussian observation equation, as detailed below
 
-The recorded duration between two consecutive heartbeats, denoted as $\Delta t_k$, is a fixed, observed quantity. By the fundamental properties of the continuous Wiener process, the integral of a drift-diffusion process evaluated over a fixed deterministic temporal window yields a strictly Gaussian random variable. At the exact moment the electrocardiogram registers a heartbeat, the physiological reality dictates that the accumulated phase must have exactly reached the normalized threshold of $1.0$. Therefore, the completion of a cardiac cycle allows us to map the physical boundary condition into a phase-domain observation equation:
+The recorded duration between two consecutive heartbeats, $\Delta t_k$, is a fixed, observed quantity. By the fundamental properties of the continuous Wiener process, the integral of a drift-diffusion process evaluated over a fixed deterministic temporal window yields a Gaussian random variable. At the trigger of a heartbeat, the accumulated phase must reach the threshold of $1.0$. Thus:
 
 $$
-1.0 = \int_{t_{k-1}}^{t_k} \nu(t) dt + v_k, \quad v_k \sim \mathcal{N}(0, \sigma_z^2 \Delta t_k)
+1.0 = \int_{t_{k-1}}^{t_k} \nu(t) dt + v_k, \quad v_k \sim \mathcal{N}(0, \sigma_z^2 \Delta t_k + \Omega_k)
 $$
+
+Here, $v_k$ represents the composite observational error, where $\Omega_k$ is the conditional variance of the integrated autonomic states over the interval $\Delta t_k$. This coordinate inversion yields an exact, conditionally Gaussian measurement equation, permitting closed-form linear estimation.
 
 The baseline sinoatrial firing rate is defined as a constant intrinsic drift $\nu_0$, which is modulated additively by the latent parasympathetic tone $x_p(t)$ and the latent sympathetic tone $x_s(t)$. Substituting these autonomic drivers into the pacing integral yields the specific observation function for a single cardiac interval:
 
@@ -126,7 +99,9 @@ $$
 
 Because the continuous-time transition matrix is constant and linear, the discrete-time transition over any uneven observation interval $\Delta t_k$ is analytically exact. The state transition matrix is computed directly via the matrix exponential, $\Phi_k = \exp(A \Delta t_k)$. The corresponding exact process covariance matrix over the uneven interval is derived deterministically. To prevent catastrophic floating-point cancellation during the evaluation of these continuous integrals when the product of the clearance rate and the time interval approaches zero, the exact analytical solutions are conditionally evaluated using truncated Taylor series expansions for limiting cases.
 
-Operating within this augmented state-space, the measurement matrix reduces to a deterministic, sparse linear combination of the integral components. The measurement vector is defined as $H = [0, 0, -1, 1]$. Consequently, the predicted phase observation at beat $k$ simplifies to $1.0 - \nu_0 \Delta t_k = H \tilde{X}_{k|k-1} + v_k$. Following the incorporation of the measurement residual via the standard Kalman update equations, a physiological boundary condition is applied. Because the accumulation of phase at the sinoatrial node repolarizes and resets identically to zero immediately following a cellular discharge, the integral states $I_p(t_k)$ and $I_s(t_k)$ and their associated covariance matrices are reset to zero at the conclusion of every estimation step. This explicit structural reset preserves the uncoupled biological geometry of the neural drives while satisfying the boundary constraints of the point process.
+Operating within this augmented state-space, the measurement matrix reduces to a deterministic, sparse linear combination of the integral components. The measurement vector is defined as $H = [0, 0, -1, 1]$. Consequently, the predicted phase observation at beat $k$ simplifies to $1.0 - \nu_0 \Delta t_k = H \tilde{X}_{k|k-1} + v_k$. Following the incorporation of the measurement residual via the standard Kalman update equations, a physiological boundary condition is applied. At the conclusion of every estimation step, a phase-reset is applied: the integral states $I_p(t_k)$ and $I_s(t_k)$ and their associated covariance matrices are reset to zero, while the underlying neural drives $x_p(t)$ and $x_s(t)$ continue their continuous evolution. This explicit structural reset preserves the uncoupled biological continuity of the neural drives while satisfying the boundary constraints of the point process.
+
+Because the exact linear-Gaussian assumption is highly sensitive to ectopic beats and non-sinus arrhythmias, a dynamic observation gate is integrated directly into the Kalman measurement update. When an observed RR interval induces a phase innovation that violates the physiological threshold of the continuous autonomic diffusion, the localized measurement variance scaling the intrinsic threshold noise is asymptotically inflated. This dynamically reduces the Kalman gain toward zero for outlier intervals, allowing the filter to process aberrant temporal geometry without corrupting the continuous internal tracking of the latent neural states.
 
 ### Exact dual-filter generalized least squares estimation
 
@@ -152,7 +127,7 @@ This dual-filter marginalization removes the baseline parameter and the global s
 
 With the baseline and global volatility integrated out of the optimization, the remaining parameter space is defined by the parasympathetic and sympathetic clearance rates ($\kappa_p, \kappa_s$) and the fractional variances mapping the proportion of energy allocated to the specific neural branches and the measurement threshold. However, a single stream of heartbeat intervals explicitly measures only the sum of the accumulated phase differences. Attempting to estimate the independent proportion of vagal and sympathetic variance from this single geometric projection induces a structural unidentifiability, leading to parameter permutations and degenerate likelihood ridges.
 
-To ensure identifiability, the fractional variance of the parasympathetic branch $\lambda_p$ is deterministically anchored using the time-frequency energy distribution of the observed series. Traditional Fourier transformations evaluate spectral bands under an assumption of global stationarity, which is routinely violated by the non-stationary dynamics of autonomic regulation. To eliminate this constraint, the signal is projected into a joint time-frequency space via a Continuous Wavelet Transform ($\text{CWT}$) utilizing a localized Morlet wavelet. The complex Morlet wavelet optimizes the trade-off between temporal and spectral resolution, isolating transient neural fluctuations without smearing energy across the spectrum. The time-averaged projection of this localized power surface yields the global wavelet spectrum. Because the underlying latent drives are modeled as Ornstein-Uhlenbeck processes with theoretical Lorentzian power spectral densities, the empirical power within the low-frequency ($P_{LF}: 0.04 - 0.15\text{ Hz}$) and high-frequency ($P_{HF}: 0.15 - 0.40\text{ Hz}$) bands is explicitly calculated by integrating the localized global power across the logarithmic frequency differential $d(\log f)$. The ratio of parasympathetic to sympathetic variance is fixed to this empirical energy ratio, scaled deterministically by the tested clearance rates at each optimization step. This wavelet-based mapping removes the neural variance ratios from the numerical search space entirely.
+To ensure identifiability, the fractional variance of the parasympathetic branch $\lambda_p$ is deterministically anchored using the time-frequency energy distribution of the observed series. Traditional Fourier transformations evaluate spectral bands under an assumption of global stationarity, which is routinely violated by the non-stationary dynamics of autonomic regulation. To eliminate this constraint, the signal is projected into a joint time-frequency space via a Continuous Wavelet Transform (CWT) utilizing a localized Morlet wavelet. The complex Morlet wavelet optimizes the trade-off between temporal and spectral resolution, isolating transient neural fluctuations without smearing energy across the spectrum. The time-averaged projection of this localized power surface yields the global wavelet spectrum. Because the underlying latent drives are modeled as Ornstein-Uhlenbeck processes with theoretical Lorentzian power spectral densities, the empirical power within the low-frequency and high-frequency bands is explicitly calculated by integrating the localized global power across the logarithmic frequency differential $d(\log f)$. The ratio of parasympathetic to sympathetic variance is fixed to this empirical energy ratio, scaled deterministically by the tested clearance rates at each optimization step. This wavelet-based mapping removes the neural variance ratios from the numerical search space entirely.
 
 The ultimate objective function is therefore reduced to a strictly bounded three-dimensional topology consisting of the sympathetic clearance rate, the differential clearance rate, and the threshold noise fraction. To prevent these parameters from collapsing toward zero or diverging to infinity during segments of low signal information, a Maximum A Posteriori estimator is enforced using exact conjugate probability bounds.
 
@@ -184,10 +159,10 @@ To-do: show Fantasia results, establishing the baseline values for $\kappa_p, \k
 
 ## Dynamic autonomic reactivity
 
-![](_example_fig.png){width=100%}
+![](figures/_example_fig.png){width=100%}
 : Tilt-table test recording from PRCP dataset, reconstructed latent states and diagnostic plots.
 
-![](_example_fig2.png){width=100%}
+![](figures/_example_fig2.png){width=100%}
 : Two-minute step test recording from the TMST dataset, reconstructed latent states and diagnostic plots.
 
 To-do: show the PRCP and Step-Test time-series. Use the phase-space topology plots here; they are highly novel and visually striking for journals.
