@@ -7,74 +7,79 @@ library(ggplot2)
 library(patchwork)
 
 # ==============================================================================
-# 1. SPECTRAL INITIALIZATION (Priors & Parseval Anchoring via Morlet CWT)
+# 1. SPECTRAL INITIALIZATION (Amplitude & Bandwidth Mapping via CWT)
 # ==============================================================================
 extract_spectral_priors <- function(dy) {
-  cat("Extracting Parseval energy ratio via Morlet Wavelet integration...\n")
+  cat("Extracting Amplitude and Bandwidth priors via Morlet Wavelet...\n")
   time_cum <- cumsum(dy)
   hr_hz <- 1 / dy
 
-  # Standardize grid to 4Hz (0.25s) for continuous integration
   fs <- 4
   t_grid <- seq(min(time_cum), max(time_cum), by = 1/fs)
   hr_interp <- spline(time_cum, hr_hz, xout = t_grid)$y
-
-  # Mean-center the signal to prevent DC artifact dominating the wavelet scales
   hr_centered <- hr_interp - mean(hr_interp)
 
-  # 1. Continuous Wavelet Transform (Morlet)
-  # biwavelet expects a 2-column matrix: [Time, Value]
   data_mat <- cbind(t_grid, hr_centered)
+  invisible(capture.output(wt_res <- biwavelet::wt(data_mat, do.sig = FALSE)))
 
-  # Run CWT (suppress noisy console outputs from the package)
-  invisible(capture.output(
-    wt_res <- biwavelet::wt(data_mat, do.sig = FALSE)
-  ))
-
-  # 2. Extract the Global Wavelet Spectrum
-  # Average the time-frequency power surface across the time dimension
   global_power <- rowMeans(wt_res$power)
   freqs <- 1 / wt_res$period
+  df <- abs(c(diff(freqs), 0))
 
-  # 3. Integrate Power Over Physiological Bands
   lf_idx <- which(freqs >= 0.04 & freqs < 0.15)
   hf_idx <- which(freqs >= 0.15 & freqs <= 0.60)
 
-  # Because wavelet scales are logarithmic, we multiply the global power
-  # by the frequency differential (df) for a true mathematical integral.
-  df <- abs(c(diff(freqs), 0))
-
+  # 1. AMPLITUDE MAPPING (Total Band Energy -> V)
   p_lf <- sum(global_power[lf_idx] * df[lf_idx])
   p_hf <- sum(global_power[hf_idx] * df[hf_idx])
-
   energy_ratio <- p_hf / p_lf
-  cat(sprintf("Wavelet Energy Ratio (HF/LF): %.4f\n", energy_ratio))
 
-  # Return the intrinsic baseline drift and the robust spectral ratio
+  # 2. BEHAVIOR MAPPING (Spectral Bandwidth -> Kappa)
+  fc_lf <- sum(freqs[lf_idx] * global_power[lf_idx] * df[lf_idx]) / p_lf
+  fc_hf <- sum(freqs[hf_idx] * global_power[hf_idx] * df[hf_idx]) / p_hf
+
+  # Calculate spectral standard deviation (Bandwidth)
+  bw_lf <- sqrt(sum((freqs[lf_idx] - fc_lf)^2 * global_power[lf_idx] * df[lf_idx]) / p_lf)
+  bw_hf <- sqrt(sum((freqs[hf_idx] - fc_hf)^2 * global_power[hf_idx] * df[hf_idx]) / p_hf)
+
+  # Convert bandwidth to angular corner frequency (Kappa MAP mode)
+  ks_mode <- 2 * pi * bw_lf
+  kp_mode <- 2 * pi * bw_hf
+
+  # Safety fallbacks for ultra-clean signals
+  if(is.na(ks_mode) || ks_mode < 0.01) ks_mode <- 0.10
+  if(is.na(kp_mode) || kp_mode < 0.01) kp_mode <- 1.25
+
+  cat(sprintf("Wavelet Ratio (V_p/V_s): %.4f | Priors: k_s=%.3f, k_p=%.3f\n",
+              energy_ratio, ks_mode, kp_mode))
+
   list(
     nu0_init = mean(hr_hz),
-    energy_ratio = energy_ratio
+    energy_ratio = energy_ratio,
+    ks_mode = ks_mode,
+    kp_mode = kp_mode
   )
 }
 
 # ==============================================================================
-# 2. OU INTEGRALS HELPER
+# 2. OU INTEGRALS HELPER (Reparameterized for Variance/Behavior Orthogonality)
 # ==============================================================================
-.compute_ou_block <- function(k, dt, sig2) {
+.compute_ou_block <- function(k, dt, V) {
   x <- k * dt
 
+  # CRITICAL: Dynamic diffusion calculation to conserve Amplitude (V)
+  sigma2 <- 2 * k * V
+
   if (x < 1e-3) {
-    # Taylor series limits to prevent floating point zeros
     phi_int <- dt - (k * dt^2)/2 + (k^2 * dt^3)/6
-    q11 <- sig2 * (dt - k * dt^2 + (2 * k^2 * dt^3)/3)
-    q13 <- sig2 * ((dt^2)/2 - (k * dt^3)/2 + (7 * k^2 * dt^4)/24)
-    q33 <- sig2 * ((dt^3)/3 - (k * dt^4)/4 + (7 * k^2 * dt^5)/60)
+    q11 <- sigma2 * (dt - k * dt^2 + (2 * k^2 * dt^3)/3)
+    q13 <- sigma2 * ((dt^2)/2 - (k * dt^3)/2 + (7 * k^2 * dt^4)/24)
+    q33 <- sigma2 * ((dt^3)/3 - (k * dt^4)/4 + (7 * k^2 * dt^5)/60)
   } else {
-    # Standard closed-form OU continuous integration
     phi_int <- (1 - exp(-x)) / k
-    q11 <- sig2 * (1 - exp(-2 * x)) / (2 * k)
-    q13 <- sig2 * (1 - 2*exp(-x) + exp(-2*x)) / (2 * k^2)
-    q33 <- sig2 * (2*x - 3 + 4*exp(-x) - exp(-2*x)) / (2 * k^3)
+    q11 <- sigma2 * (1 - exp(-2 * x)) / (2 * k)
+    q13 <- sigma2 * (1 - 2*exp(-x) + exp(-2*x)) / (2 * k^2)
+    q33 <- sigma2 * (2*x - 3 + 4*exp(-x) - exp(-2*x)) / (2 * k^3)
   }
 
   list(phi_int = phi_int, q11 = q11, q13 = q13, q33 = q33)
@@ -240,71 +245,67 @@ run_gls_filter <- function(dy, kp, ks, lp, lR, jump_threshold, jump_power, smoot
 # ==============================================================================
 # MAP OBJECTIVE FUNCTION
 # ==============================================================================
-objective_map_3d <- function(theta, dy, energy_ratio, jump_threshold, jump_power, smooth) {
+objective_map_3d <- function(theta, dy, priors, jump_threshold, jump_power, smooth) {
   ks <- exp(theta[1])
   kp <- ks + exp(theta[2])
   lR <- exp(theta[3])
-  lp <- energy_ratio * (kp / ks)
 
-  # Pass hyperparameters to the filter
-  res <- run_gls_filter(dy, kp, ks, lp, lR, jump_threshold, jump_power, smooth)
+  # Vp is the pure amplitude ratio. NO longer entangled with (kp / ks)!
+  Vp <- priors$energy_ratio
 
-  # ----------------------------------------------------------------------------
-  # Maximum A Posteriori (MAP) Priors
-  # ----------------------------------------------------------------------------
+  # Pass hyperparameters to the filter (Note: signature of run_gls_filter does not change)
+  res <- run_gls_filter(dy, kp, ks, Vp, lR, jump_threshold, jump_power, smooth)
 
-  # Sympathetic: Mode = 0.10Hz, Strength = 3 (Lower strength = more diffuse)
-  ks_mode <- 0.10; ks_strength <- 3.0
+  # Data-Driven Maximum A Posteriori (MAP) Priors mapped from Wavelet Bandwidth
+  ks_mode <- priors$ks_mode; ks_strength <- 3.0
   pen_ks  <- (ks_strength) * log(ks) - (ks_strength/ks_mode) * ks
 
-  # Vagal: Mode = 1.25Hz, Strength = 5 (Higher strength = more concentrated)
-  kp_mode <- 1.25; kp_strength <- 5.0
+  kp_mode <- priors$kp_mode; kp_strength <- 5.0
   pen_kp  <- (kp_strength) * log(kp) - (kp_strength/kp_mode) * kp
 
-  # Jitter: Mode = 0.0003, Shape = 2.0 (Higher shape = steeper descent from mode)
   lR_mode <- 0.0003; lR_shape <- 2.0
   pen_lR  <- -(lR_shape + 1) * log(lR) - (lR_mode * (lR_shape + 1)) / lR
 
-  # Return negative log-posterior (Cost function to minimize)
   return(-(res$LL_star + pen_ks + pen_kp + pen_lR))
 }
 
 # ==============================================================================
 # 4. OPTIMIZATION ROUTINE
 # ==============================================================================
-fit_model <- function(dy, jump_threshold = 0.15, jump_power = 8, smooth = TRUE) {
+fit_model <- function(dy, jump_threshold = 0.1, jump_power = 10, smooth = TRUE) {
   if (any(is.na(dy))) dy <- na.omit(dy)
   priors <- extract_spectral_priors(dy)
-  theta_init <- c(log(0.05), log(0.35 - 0.05), log(0.001))
 
-  cat("\nRunning 3D BFGS Optimization with MAP Penalties...\n")
+  # Initialize near the empirical bandwidths
+  theta_init <- c(log(max(priors$ks_mode, 0.01)), log(max(priors$kp_mode - priors$ks_mode, 0.05)), log(0.001))
+
+  cat("\nRunning 3D BFGS Optimization with Reparameterized MAP Penalties...\n")
   opt_res <- optim(par = theta_init, fn = objective_map_3d, dy = dy,
-                   energy_ratio = priors$energy_ratio,
+                   priors = priors,
                    jump_threshold = jump_threshold,
                    jump_power = jump_power,
                    smooth = smooth,
                    method = "BFGS",
-                   control = list(maxit = 1000, trace = 1))
+                   control = list(maxit = 1000, trace = 0))
 
-  # Extract Final Parameters
   ks_opt <- exp(opt_res$par[1])
   kp_opt <- ks_opt + exp(opt_res$par[2])
   lR_opt <- exp(opt_res$par[3])
-  lp_opt <- priors$energy_ratio * (kp_opt / ks_opt)
+  Vp_opt <- priors$energy_ratio
 
-  # Final pass to extract states & innovations
-  final_res <- run_gls_filter(dy, kp_opt, ks_opt, lp_opt, lR_opt, jump_threshold, jump_power, smooth)
+  final_res <- run_gls_filter(dy, kp_opt, ks_opt, Vp_opt, lR_opt, jump_threshold, jump_power, smooth)
 
   return(list(
     dy = dy, time = cumsum(dy),
+    priors_obj = priors, # Required for the reporting Hessian
     params = list(
-      ks = ks_opt, kp = kp_opt, lR = lR_opt, lp = lp_opt,
+      ks = ks_opt, kp = kp_opt, lR = lR_opt, lp = Vp_opt,
       nu0 = final_res$nu0, sig2 = final_res$sig2,
-      sig_p = sqrt(lp_opt * final_res$sig2), sig_s = sqrt(final_res$sig2),
+      # Convert the Vp amplitude back into physical SDE diffusion (sigma) for the report
+      sig_p = sqrt(2 * kp_opt * Vp_opt * final_res$sig2),
+      sig_s = sqrt(2 * ks_opt * 1.0 * final_res$sig2),
       energy_ratio = priors$energy_ratio,
-      # Save hyperparameters for reporting
-      jump_threshold = jump_threshold,
-      jump_power = jump_power
+      jump_threshold = jump_threshold, jump_power = jump_power
     ),
     states = final_res$states,
     innovations = final_res$std_innov,
@@ -333,8 +334,7 @@ report_model <- function(fit_obj, smooth = TRUE) {
     func = objective_map_3d,
     x = theta_opt,
     dy = dy,
-    energy_ratio = p$energy_ratio,
-    # Thread hyperparameters into exact Delta Method
+    priors = fit_obj$priors_obj,
     jump_threshold = p$jump_threshold,
     jump_power = p$jump_power,
     smooth = smooth
