@@ -2,8 +2,8 @@
 # Prepare workspace -------------------------------------------------------
 
 ## Import libraries
-library(biwavelet)
 library(ggplot2)
+library(biwavelet)
 library(patchwork)
 
 # ==============================================================================
@@ -67,7 +67,7 @@ extract_spectral_priors <- function(dy) {
 .compute_ou_block <- function(k, dt, V) {
   x <- k * dt
 
-  # CRITICAL: Dynamic diffusion calculation to conserve Amplitude (V)
+  # Dynamic diffusion calculation to conserve Amplitude (V)
   sigma2 <- 2 * k * V
 
   if (x < 1e-3) {
@@ -263,7 +263,7 @@ objective_map_3d <- function(theta, dy, priors, jump_threshold, jump_power, smoo
   kp_mode <- priors$kp_mode; kp_strength <- 5.0
   pen_kp  <- (kp_strength) * log(kp) - (kp_strength/kp_mode) * kp
 
-  lR_mode <- 0.0003; lR_shape <- 2.0
+  lR_mode <- 0.0005; lR_shape <- 2.0
   pen_lR  <- -(lR_shape + 1) * log(lR) - (lR_mode * (lR_shape + 1)) / lR
 
   return(-(res$LL_star + pen_ks + pen_kp + pen_lR))
@@ -286,7 +286,7 @@ fit_model <- function(dy, jump_threshold = 0.1, jump_power = 10, smooth = TRUE) 
                    jump_power = jump_power,
                    smooth = smooth,
                    method = "BFGS",
-                   control = list(maxit = 1000, trace = 0))
+                   control = list(maxit = 1000, trace = 1))
 
   ks_opt <- exp(opt_res$par[1])
   kp_opt <- ks_opt + exp(opt_res$par[2])
@@ -446,6 +446,7 @@ visualize_model <- function(fit_obj) {
     geom_line(aes(y = Implied, color = "Filtered RR"), linewidth = 1/3) +
     scale_color_manual(values = c("Observed RR" = "gray50",
                                   "Filtered RR" = "darkred")) +
+    scale_x_continuous(expand = c(0,0)) +
     labs(title = "Phase-Domain Filtering & Predictive Fit",
          y = "RR Interval (s)",
          x = "") +
@@ -456,7 +457,7 @@ visualize_model <- function(fit_obj) {
   df_X <- data.frame(
     Time = rep(time_cum, 2), Value = c(X_p, X_s),
     State = factor(rep(c("Parasympathetic Drive", "Sympathetic Drive"), each = N),
-                   levels = c("Sympathetic Drive", "Parasympathetic Drive"))
+                   levels = c("Parasympathetic Drive", "Sympathetic Drive"))
   )
 
   pB <- ggplot(df_X, aes(x = Time, y = Value, color = State)) +
@@ -465,6 +466,7 @@ visualize_model <- function(fit_obj) {
     geom_line(linewidth = 1/3) +
     scale_color_manual(values = c("Parasympathetic Drive" = "#4DB0D0",
                                   "Sympathetic Drive" = "#DC5050")) +
+    scale_x_continuous(expand = c(0,0)) +
     labs(title = "Native Autonomic Drivers (Direct Tracking)",
          y = "Amplitude (Hz)",
          x = "Time (seconds)") +
@@ -493,8 +495,9 @@ visualize_model <- function(fit_obj) {
   pC <- ggplot() +
     geom_raster(data = grid, aes(x = X_p, y = X_s, fill = Energy)) +
     geom_contour(data = grid, aes(x = X_p, y = X_s, z = Energy), color = "white", alpha = 0.2, bins = 20) +
-    geom_path(data = df_traj, aes(x = X_p, y = X_s, color = Time),
-              arrow = arrow(type = "closed", length = unit(0.06, "inches"))) +
+    geom_path(data = df_traj, aes(x = X_p, y = X_s, color = Time, alpha = Time),
+              arrow = ggplot2::arrow(type = "closed", length = unit(0.06, "inches")),
+              show.legend = FALSE) +
     scale_fill_viridis_c(option = "mako", name = "Energy (U)") +
     scale_color_viridis_c(option = "plasma", guide = "none") +
     scale_x_continuous(expand = c(0,0)) +

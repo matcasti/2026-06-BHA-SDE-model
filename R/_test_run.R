@@ -7,11 +7,11 @@ source("R/_functions.R")
 # -------------------------------------------------------------------------
 
 ## Load test data
-rr_data <- (readLines("data/prcp/12726.txt") |> as.numeric())
+rr_data <- (readLines("data/prcp/12754.txt") |> as.numeric())
 
 plot(rr_data, type = "o", pch = "•")
 
-fit <- fit_model(rr_data, jump_threshold = 0.1, jump_power = 12)
+fit <- fit_model(rr_data)
 
 fig <- visualize_model(fit) / diagnose_model(fit) +
   patchwork::plot_layout(heights = c(1,0.75))
@@ -26,9 +26,9 @@ report_model(fit)
 ## Load data
 rr_data <- (readLines("data/rri-jabf.txt") |> as.numeric())/1000
 
-plot(rr_data, type = "o", pch = "•")
+plot(cumsum(rr_data)/60, rr_data, type = "o", pch = "•")
 
-fit <- fit_model(rr_data, jump_threshold = 0.1, jump_power = 12)
+fit <- fit_model(rr_data)
 
 fig <- visualize_model(fit) / diagnose_model(fit) +
   patchwork::plot_layout(heights = c(1,0.75))
