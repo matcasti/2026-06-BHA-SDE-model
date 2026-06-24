@@ -53,21 +53,41 @@ Solving the boundary-crossing problem for this stochastic process yields a proba
 
 To bypass the non-linearities inherent in estimating the first-passage time, we execute a structural coordinate inversion. The mathematical limitation of the classical approach stems from treating the time variable $T$ as the random observation evaluated against a fixed phase boundary. We reverse this relationship. Rather than conditioning the estimator on the boundary to predict the time elapsed, we condition the estimator on the observed time elapsed to evaluate the accumulated phase. Therefore, we adopt a physiologically equivalent terminal‑threshold model: a heartbeat is triggered exactly when the accumulated phase reaches the threshold at the end of the observed interval, which for high‑drift, low‑noise regimes is indistinguishable from the strict first‑passage process (see the justification in the ["Asymptotic convergence of the phase-domain mapping"](supplementary.qmd#sec-phase-mapping) section in supplementary material). 
 
-The recorded duration between two consecutive heartbeats, $\Delta t_k$, is a fixed, observed quantity. By the fundamental properties of the continuous Wiener process, the integral of a drift-diffusion process evaluated over a fixed deterministic temporal window yields a Gaussian random variable. At the trigger of a heartbeat, the accumulated phase must reach the threshold of $1.0$. Thus:
+The recorded duration between two consecutive heartbeats, $\Delta t_k$, is treated as a fixed, observed quantity. To evaluate the accumulated phase, we integrate the foundational drift-diffusion stochastic differential equation over this deterministic temporal window, $[t_{k-1}, t_k]$:
 
 $$
-1.0 = \int_{t_{k-1}}^{t_k} \nu(t) dt + v_k, \quad v_k \sim \mathcal{N}(0, \sigma_z^2 \Delta t_k + \Omega_k)
+\int_{t_{k-1}}^{t_k} d\phi(t) = \int_{t_{k-1}}^{t_k} \nu(t) dt + \int_{t_{k-1}}^{t_k} \sigma_z dW(t)
 $$
 
-Here, $v_k$ represents the composite observational error, where $\Omega_k$ is the conditional variance of the integrated autonomic states over the interval $\Delta t_k$. This coordinate inversion yields an exact, conditionally Gaussian measurement equation, permitting closed-form linear estimation.
+At the exact trigger of a heartbeat, the accumulated phase must reach the normalized threshold, rendering the left side of the equation exactly equal to $1.0$. By the fundamental properties of the continuous Wiener process, the second term on the right evaluates to a zero-mean Gaussian random variable, $\epsilon_k \sim \mathcal{N}(0, \sigma_z^2 \Delta t_k)$, representing the intrinsic physiological jitter at the depolarization threshold. 
 
-The baseline sinoatrial firing rate is defined as a constant intrinsic drift $\nu_0$, which is modulated additively by the latent parasympathetic tone $x_p(t)$ and the latent sympathetic tone $x_s(t)$. Substituting these autonomic drivers into the pacing integral yields the specific observation function for a single cardiac interval:
+The continuous drift rate, $\nu(t)$, is defined by a constant intrinsic baseline pacing $\nu_0$, which is modulated additively by the latent parasympathetic tone $x_p(t)$ and the latent sympathetic tone $x_s(t)$:
+
+$$
+\nu(t) = \nu_0 - x_p(t) + x_s(t)
+$$
+
+Evaluating the definite integral of this drift over the cardiac interval physically isolates the baseline linear pacing from the integrated autonomic fluctuations:
+
+$$
+\int_{t_{k-1}}^{t_k} \nu(t) dt = \nu_0 \Delta t_k - \int_{t_{k-1}}^{t_k} x_p(t) dt + \int_{t_{k-1}}^{t_k} x_s(t) dt
+$$
+
+Because these latent autonomic drivers are themselves continuous stochastic diffusions, evaluating their exact integral over the observation interval introduces a conditional state variance, denoted as $\Omega_k$. 
+
+Substituting this expanded drift integral back into the threshold equation and aggregating the stochastic components yields the specific observation function for a single cardiac interval:
 
 $$
 1.0 = \nu_0 \Delta t_k - \int_{t_{k-1}}^{t_k} x_p(t) dt + \int_{t_{k-1}}^{t_k} x_s(t) dt + v_k
 $$
 
-Under the terminal‑threshold model, this coordinate inversion yields an exact, conditionally Gaussian measurement equation. Because the recorded RR interval is treated as a deterministic window, the integrated drift‑diffusion process is strictly linear and its noise term is exactly Gaussian. The observation is therefore strictly linear with respect to the time‑integrals of the latent autonomic states, permitting closed‑form linear estimation with no approximation.
+Here, $v_k$ represents the exact composite observational error, structurally absorbing both the intrinsic threshold jitter and the integrated autonomic state variance:
+
+$$
+v_k \sim \mathcal{N}(0, \sigma_z^2 \Delta t_k + \Omega_k)
+$$
+
+Under the terminal‑threshold model, this coordinate inversion yields an exact, conditionally Gaussian measurement equation. Because the recorded RR interval is treated as a deterministic window, the integrated drift‑diffusion process is strictly linear and its combined noise term is exactly Gaussian. The observation is therefore strictly linear with respect to the time‑integrals of the latent autonomic states, permitting closed‑form linear estimation with no approximation.
 
 ### Continuous-time autonomic dynamics and state augmentation
 
@@ -151,27 +171,50 @@ The validation pipeline concludes with a comparative evaluation against classica
 
 # Results
 
-## Model convergence and statistical diagnostics
+## Model architecture and biological fidelity
 
-To-do: report that the analytical MAP objective achieved bounded convergence across $N$ subjects without parameter explosion, validated by KS statistics.
+<!---
+To establish the conceptual framework and biological construct validity of the proposed state-space architecture, the estimation algorithm was first evaluated for its capacity to autonomously recover fundamental physiological kinetics. By utilizing an orthogonal reparameterization of the Ornstein-Uhlenbeck continuous integrals ($\sigma^2 = 2\kappa V$) and deterministic wavelet anchoring, the model structurally disentangles the amplitude of the biological drive from its kinetic memory.
 
-## Tracking the resting state
+When applied to the characterized `Fantasia` resting dataset, the optimized time-constants ($\tau = 1/\kappa$) were extracted to verify whether the mathematical structure could natively distinguish between the two autonomic branches. Without the introduction of explicit kinetic priors beyond the initial bandwidth mapping, the recovered half-lives naturally segregated into distinct, physiologically consistent domains. The model autonomously identified a rapid parasympathetic clearance (fast $\tau_p$) and a markedly slower sympathetic clearance (slow $\tau_s$). This kinetic separation aligns precisely with established autonomic physiology—reflecting the rapid synaptic signaling of the vagus nerve versus the slower, secondary-messenger kinetics of the sympathetic pathways—thereby validating the biological fidelity of the mathematically recovered latent states.
 
-To-do: show Fantasia results, establishing the baseline values for $\kappa_p, \kappa_s$.
 
-## Dynamic autonomic reactivity
+> **Figure 1: SDE-IPFM Architecture and Intrinsic Biological Fidelity.** 
+> **(A)** Schematic representation of the computational pipeline. The raw RR interval sequence undergoes a Morlet Continuous Wavelet Transform (CWT) to extract deterministic bandwidth priors, which subsequently guide the continuous-time Kalman SDE integration to extract the latent autonomic drivers.
+> **(B)** Posterior distributions of the reconstructed parasympathetic ($\tau_p$) and sympathetic ($\tau_s$) time-constants across the resting cohort. The orthogonal parameterization autonomously isolates the rapid temporal memory of the vagal branch from the prolonged kinetic memory of the sympathetic branch, successfully recovering textbook autonomic physiology from the raw time-series structure.
+--->
 
-![](figures/_example_fig.png){width=100%}
-: Tilt-table test recording from PRCP dataset, reconstructed latent states and diagnostic plots.
+## Continuous state reconstruction across physiological regimes
 
-![](figures/_example_fig2.png){width=100%}
-: Two-minute step test recording from the TMST dataset, reconstructed latent states and diagnostic plots.
+<!---
+To evaluate the stability and tracking capacity of the filter across varying degrees of observational noise and non-stationarity, the architecture was applied to three distinct clinical regimes: strict laboratory rest (`Fantasia`), acute postural perturbation (`PRCP` tilt-table), and ambulatory physical exertion (2-Minute Step Test; 2MST).
 
-To-do: show the PRCP and Step-Test time-series. Use the phase-space topology plots here; they are highly novel and visually striking for journals.
+Goodness-of-fit was evaluated cohort-wide using the Time-Rescaling Theorem. Empirical cumulative distribution functions of the Kolmogorov-Smirnov (KS) statistics indicated that the exact continuous integration successfully preserved the Linear Time-Invariant (LTI) assumptions of the stochastic point-process across all three regimes. Visually, the continuous phase-space maintained geometric consistency during abrupt physiological phase-shifts. During postural perturbation, the filter captured the immediate reciprocal vagal withdrawal and sympathetic activation characteristic of the baroreflex. Similarly, during physical exertion, the continuous states seamlessly tracked progressive parasympathetic withdrawal and subsequent exponential recovery.
 
-## Comparative resolution 
+> **Figure 2**. Continuous State Reconstruction and Aggregated Point-Process Diagnostics Across Three Clinical Regimes.
+> **(Row 1) Pristine Baseline (`Fantasia`):** Representative 5-minute resting phase-space reconstruction (left) demonstrating stable LTI smoothing, alongside cohort-level KS-test empirical cumulative distribution functions (eCDF) confirming strict adherence to point-process validity (right).
+> **(Row 2) Baroreflex Perturbation (`PRCP`):** Representative subject transitioning from supine rest to a 70-degree head-up tilt, demonstrating instantaneous tracking of vagal withdrawal ($X_p$) and sympathetic activation ($X_s$) (left), with aggregated cohort diagnostics indicating sustained filter stability across the non-stationary boundary (right).
+> **(Row 3) Ambulatory Physical Stress (2MST):** Representative step-test trajectory (Rest $\rightarrow$ Exercise $\rightarrow$ Recovery) exhibiting exponential parasympathetic phase-shifts (left), alongside cohort diagnostics demonstrating the filter's capacity to process movement-induced observational noise (right).
+--->
 
-To-do: demonstrate the temporal superiority of the latent state variables against traditional sliding-window spectral ratios during the tilt transitions and exercise.
+## Benchmarking and artifact resilience against classical HRV metrics
+
+<!---
+For the model to be clinically viable, it must reliably mirror established gold-standard metrics under controlled conditions while demonstrating superior resilience under ambulatory stress. Analysis of the stationary resting protocols (`Fantasia` and `PRCP` baseline) revealed strong intra-subject correlations between the SDE-derived steady-state variances and classical Fourier-derived frequency bands, establishing baseline clinical equivalence.
+
+
+
+> **Table 1**. Baseline Equivalence of SDE Amplitudes and Classical Spectral Power. Comparison of classical Fourier-derived frequency metrics (LF, HF) and SDE-derived steady-state variances ($V_s$, $V_p$) across the `Fantasia` and `PRCP` resting cohorts. The final column reports the intra-subject Pearson correlation ($r$) between classical HF power and $V_p$, indicating strict alignment under stationary conditions.
+
+In contrast to resting conditions, physical exertion protocols are inherently contaminated by non-stationarity and motion artifacts, which routinely destabilize classical sliding-window time-domain calculations such as RMSSD. When evaluated across the complete 272-subject 2MST cohort, standard sliding-window metrics exhibited high variance, temporal lag, and geometric distortion during phase transitions. Conversely, the SDE model generated a stable, continuous population-level trajectory of autonomic exercise response. This resilience is mediated by the non-linear asymptotic observation gate, which dynamically inflated the localized threshold variance in the presence of geometric outliers (e.g., ectopic beats), thereby preventing non-biological measurement innovations from corrupting the internal tracking of the latent neural states.
+
+
+
+> **Figure 3**. Clinical-Scale Resilience and Observational Artifact Mitigation.
+> **(A) Population-Level Temporal Trajectory (N=272):** Aggregate response during the 2MST protocol comparing classical 60-second sliding-window RMSSD with the continuous SDE parasympathetic amplitude ($V_p$). The state-space model yields a robust population curve of autonomic transition, whereas RMSSD exhibits artifact-driven variance and temporal smearing.
+> **(B) Mechanism of Artifact Rejection:** A detailed 15-second ambulatory window highlighting an ectopic beat / missed detection. Top: Classical RMSSD mathematically destabilizes, yielding a biologically impossible variance spike. Bottom: The SDE Kalman filter maintains physiological continuity. The overlaid dashed line demonstrates the internal dynamic gate multiplier temporarily reducing the Kalman gain, allowing the system to safely coast through the observational noise utilizing its biological inertia.
+--->
+
 
 # Discussion
 

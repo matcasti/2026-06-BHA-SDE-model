@@ -2,88 +2,93 @@
 # Prepare workspace -------------------------------------------------------
 
 ## Import libraries
-library(biwavelet)
 library(ggplot2)
+library(biwavelet)
 library(patchwork)
 
 # ==============================================================================
-# 1. SPECTRAL INITIALIZATION (Priors & Parseval Anchoring via Morlet CWT)
+# 1. SPECTRAL INITIALIZATION (Amplitude & Bandwidth Mapping via CWT)
 # ==============================================================================
 extract_spectral_priors <- function(dy) {
-  cat("Extracting Parseval energy ratio via Morlet Wavelet integration...\n")
+  cat("Extracting Amplitude and Bandwidth priors via Morlet Wavelet...\n")
   time_cum <- cumsum(dy)
   hr_hz <- 1 / dy
 
-  # Standardize grid to 4Hz (0.25s) for continuous integration
   fs <- 4
   t_grid <- seq(min(time_cum), max(time_cum), by = 1/fs)
   hr_interp <- spline(time_cum, hr_hz, xout = t_grid)$y
-
-  # Mean-center the signal to prevent DC artifact dominating the wavelet scales
   hr_centered <- hr_interp - mean(hr_interp)
 
-  # 1. Continuous Wavelet Transform (Morlet)
-  # biwavelet expects a 2-column matrix: [Time, Value]
   data_mat <- cbind(t_grid, hr_centered)
+  invisible(capture.output(wt_res <- biwavelet::wt(data_mat, do.sig = FALSE)))
 
-  # Run CWT (suppress noisy console outputs from the package)
-  invisible(capture.output(
-    wt_res <- biwavelet::wt(data_mat, do.sig = FALSE)
-  ))
-
-  # 2. Extract the Global Wavelet Spectrum
-  # Average the time-frequency power surface across the time dimension
   global_power <- rowMeans(wt_res$power)
   freqs <- 1 / wt_res$period
+  df <- abs(c(diff(freqs), 0))
 
-  # 3. Integrate Power Over Physiological Bands
   lf_idx <- which(freqs >= 0.04 & freqs < 0.15)
   hf_idx <- which(freqs >= 0.15 & freqs <= 0.60)
 
-  # Because wavelet scales are logarithmic, we multiply the global power
-  # by the frequency differential (df) for a true mathematical integral.
-  df <- abs(c(diff(freqs), 0))
-
+  # 1. AMPLITUDE MAPPING (Total Band Energy -> V)
   p_lf <- sum(global_power[lf_idx] * df[lf_idx])
   p_hf <- sum(global_power[hf_idx] * df[hf_idx])
-
   energy_ratio <- p_hf / p_lf
-  cat(sprintf("Wavelet Energy Ratio (HF/LF): %.4f\n", energy_ratio))
 
-  # Return the intrinsic baseline drift and the robust spectral ratio
+  # 2. BEHAVIOR MAPPING (Spectral Bandwidth -> Kappa)
+  fc_lf <- sum(freqs[lf_idx] * global_power[lf_idx] * df[lf_idx]) / p_lf
+  fc_hf <- sum(freqs[hf_idx] * global_power[hf_idx] * df[hf_idx]) / p_hf
+
+  # Calculate spectral standard deviation (Bandwidth)
+  bw_lf <- sqrt(sum((freqs[lf_idx] - fc_lf)^2 * global_power[lf_idx] * df[lf_idx]) / p_lf)
+  bw_hf <- sqrt(sum((freqs[hf_idx] - fc_hf)^2 * global_power[hf_idx] * df[hf_idx]) / p_hf)
+
+  # Convert bandwidth to angular corner frequency (Kappa MAP mode)
+  ks_mode <- 2 * pi * bw_lf
+  kp_mode <- 2 * pi * bw_hf
+
+  # Safety fallbacks for ultra-clean signals
+  if(is.na(ks_mode) || ks_mode < 0.01) ks_mode <- 0.10
+  if(is.na(kp_mode) || kp_mode < 0.01) kp_mode <- 1.25
+
+  cat(sprintf("Wavelet Ratio (V_p/V_s): %.4f | Priors: k_s=%.3f, k_p=%.3f\n",
+              energy_ratio, ks_mode, kp_mode))
+
   list(
     nu0_init = mean(hr_hz),
-    energy_ratio = energy_ratio
+    energy_ratio = energy_ratio,
+    ks_mode = ks_mode,
+    kp_mode = kp_mode
   )
 }
 
 # ==============================================================================
-# 2. OU INTEGRALS HELPER
+# 2. OU INTEGRALS HELPER (Reparameterized for Variance/Behavior Orthogonality)
 # ==============================================================================
-.compute_ou_block <- function(k, dt, sig2) {
+.compute_ou_block <- function(k, dt, V) {
   x <- k * dt
 
+  # Dynamic diffusion calculation to conserve Amplitude (V)
+  sigma2 <- 2 * k * V
+
   if (x < 1e-3) {
-    # Taylor series limits to prevent floating point zeros
     phi_int <- dt - (k * dt^2)/2 + (k^2 * dt^3)/6
-    q11 <- sig2 * (dt - k * dt^2 + (2 * k^2 * dt^3)/3)
-    q13 <- sig2 * ((dt^2)/2 - (k * dt^3)/2 + (7 * k^2 * dt^4)/24)
-    q33 <- sig2 * ((dt^3)/3 - (k * dt^4)/4 + (7 * k^2 * dt^5)/60)
+    q11 <- sigma2 * (dt - k * dt^2 + (2 * k^2 * dt^3)/3)
+    q13 <- sigma2 * ((dt^2)/2 - (k * dt^3)/2 + (7 * k^2 * dt^4)/24)
+    q33 <- sigma2 * ((dt^3)/3 - (k * dt^4)/4 + (7 * k^2 * dt^5)/60)
   } else {
-    # Standard closed-form OU continuous integration
     phi_int <- (1 - exp(-x)) / k
-    q11 <- sig2 * (1 - exp(-2 * x)) / (2 * k)
-    q13 <- sig2 * (1 - 2*exp(-x) + exp(-2*x)) / (2 * k^2)
-    q33 <- sig2 * (2*x - 3 + 4*exp(-x) - exp(-2*x)) / (2 * k^3)
+    q11 <- sigma2 * (1 - exp(-2 * x)) / (2 * k)
+    q13 <- sigma2 * (1 - 2*exp(-x) + exp(-2*x)) / (2 * k^2)
+    q33 <- sigma2 * (2*x - 3 + 4*exp(-x) - exp(-2*x)) / (2 * k^3)
   }
 
   list(phi_int = phi_int, q11 = q11, q13 = q13, q33 = q33)
 }
 
 # ==============================================================================
-# 3. DUAL-FILTER GLS (Robustified with Asymptotic Null-Gain Coasting + RTS)
+# 3. DUAL-FILTER GLS (Causal Forward-Pass Only)
 # ==============================================================================
-run_gls_filter <- function(dy, kp, ks, lp, lR, jump_threshold, jump_power, smooth) {
+run_gls_filter <- function(dy, kp, ks, lp, lR, jump_threshold, jump_power) {
   N <- length(dy)
 
   # ASYMPTOTIC NULL-GAIN GATE (Numerically Safe)
@@ -95,8 +100,6 @@ run_gls_filter <- function(dy, kp, ks, lp, lR, jump_threshold, jump_power, smoot
   J_k <- pmax(jump_back, jump_fwd, na.rm = TRUE)
   gate_multiplier <- 1 + (J_k / jump_threshold)^jump_power
 
-  # Cap the multiplier at 10 billion. This mathematically severs the Kalman
-  # update but prevents R from evaluating (0 * Inf) to NaN in the covariance step.
   gate_multiplier[!is.finite(gate_multiplier)] <- 1e10
   gate_multiplier <- pmin(gate_multiplier, 1e10)
 
@@ -105,19 +108,10 @@ run_gls_filter <- function(dy, kp, ks, lp, lR, jump_threshold, jump_power, smoot
   S_vec <- numeric(N); v0_vec <- numeric(N); vv_vec <- numeric(N)
   S_ungated_vec <- numeric(N)
 
-  # Storage for forward state reconstruction
-  X0_store <- matrix(0, N, 4); Xv_store <- matrix(0, N, 4)
-
-  # +++ RTS SMOOTHER CONDITIONAL STORAGE +++
-  if (smooth) {
-    if (!requireNamespace("MASS", quietly = TRUE)) install.packages("MASS")
-    X0_pred_store <- matrix(0, N, 4)
-    Xv_pred_store <- matrix(0, N, 4)
-    P_pred_store  <- array(0, dim=c(4, 4, N))
-    P_post_store  <- array(0, dim=c(4, 4, N))
-    Phi_store     <- array(0, dim=c(4, 4, N))
-  }
-  # ++++++++++++++++++++++++++++++++++++++++
+  # Storage for forward state reconstruction and covariance
+  X0_store <- matrix(0, N, 4)
+  Xv_store <- matrix(0, N, 4)
+  P_store  <- array(0, dim = c(4, 4, N))
 
   Phi <- matrix(0, 4, 4); Q <- matrix(0, 4, 4)
 
@@ -153,16 +147,7 @@ run_gls_filter <- function(dy, kp, ks, lp, lR, jump_threshold, jump_power, smoot
 
     X0_store[k, ] <- as.numeric(X0)
     Xv_store[k, ] <- as.numeric(Xv)
-
-    # +++ RTS SMOOTHER CONTINUOUS LOGGING +++
-    if (smooth) {
-      X0_pred_store[k, ] <- as.numeric(X0_pred)
-      Xv_pred_store[k, ] <- as.numeric(Xv_pred)
-      P_pred_store[,,k]  <- P_pred
-      P_post_store[,,k]  <- P
-      Phi_store[,,k]     <- Phi
-    }
-    # +++++++++++++++++++++++++++++++++++++++
+    P_store[,,k]  <- P
 
     # BOUNDARY RESET
     X0[3:4,] <- 0; Xv[3:4,] <- 0
@@ -179,59 +164,24 @@ run_gls_filter <- function(dy, kp, ks, lp, lR, jump_threshold, jump_power, smoot
   sig2_hat <- max(mean(v_final^2 / S_vec), 1e-12)
   LL_star  <- -0.5 * sum(log(S_vec)) - (N / 2) * log(sig2_hat)
 
-  # Reconstruct forward biological states
   states_final <- (X0_store - nu0_hat * Xv_store)
-  std_innov <- v_final / sqrt(S_vec * sig2_hat)
 
+  # Calculate causal forward variances
+  X_p_var_fwd <- P_store[1, 1, ] * sig2_hat
+  X_s_var_fwd <- P_store[2, 2, ] * sig2_hat
+  rr_var_fwd  <- (P_store[3, 3, ] + P_store[4, 4, ] - 2 * P_store[3, 4, ]) * sig2_hat / (nu0_hat^2)
+
+  states_fwd_out <- cbind(states_final, X_p_var_fwd, X_s_var_fwd, rr_var_fwd)
+  colnames(states_fwd_out) <- c("X_p", "X_s", "Phase_p", "Phase_s", "X_p_var", "X_s_var", "rr_var")
+
+  std_innov <- v_final / sqrt(S_vec * sig2_hat)
   std_innov_diagnostic <- v_final / sqrt(S_ungated_vec * sig2_hat)
   implied_rr <- (1.0 + states_final[,3] - states_final[,4]) / nu0_hat
   time_residuals <- dy - implied_rr
 
-  # RTS BACKWARD PASS
-  if (smooth) {
-    # Superimpose predictions utilizing the profiled baseline
-    X_pred_combined <- X0_pred_store - nu0_hat * Xv_pred_store
-    X_smooth <- matrix(0, N, 4)
-
-    # Initialize the backward recursion with the final forward state
-    X_smooth[N, ] <- states_final[N, ]
-
-    for (k in (N-1):1) {
-      # 1. Safe Inversion Fallback
-      P_pred_inv <- tryCatch({
-        MASS::ginv(P_pred_store[,, k+1])
-      }, error = function(e) {
-        # If SVD fails due to extreme scaling or an isolated NaN, return a zero matrix
-        matrix(0, 4, 4)
-      })
-
-      # 2. Backward Gain
-      J_k <- P_post_store[,, k] %*% t(Phi_store[,, k+1]) %*% P_pred_inv
-
-      # 3. Guard against NA propagation from the forward states
-      state_diff <- matrix(X_smooth[k+1, ] - X_pred_combined[k+1, ], 4, 1)
-      if (any(!is.finite(state_diff)) || any(!is.finite(J_k))) {
-        J_k <- matrix(0, 4, 4)
-      }
-
-      # 4. Smooth the state (If J_k is 0, it safely accepts the forward filtered state)
-      X_smooth[k, ] <- states_final[k, ] + as.numeric(J_k %*% state_diff)
-    }
-
-    # Append to output array
-    out_states <- cbind(states_final, X_smooth[, 1:2])
-    colnames(out_states) <- c("X_p", "X_s", "Phase_p", "Phase_s", "X_p_smooth", "X_s_smooth")
-
-    return(list(LL_star = LL_star, nu0 = nu0_hat, sig2 = sig2_hat,
-                states = out_states, std_innov = std_innov,
-                innovations_diagnostic = std_innov_diagnostic,
-                time_residuals = time_residuals,
-                gate_multiplier = gate_multiplier))
-  }
-  # ++++++++++++++++++++++++++++++++++++++++
-
+  # Return explicitly causal forward states
   list(LL_star = LL_star, nu0 = nu0_hat, sig2 = sig2_hat,
-       states = states_final, std_innov = std_innov,
+       states = states_fwd_out, std_innov = std_innov,
        innovations_diagnostic = std_innov_diagnostic,
        time_residuals = time_residuals,
        gate_multiplier = gate_multiplier)
@@ -240,71 +190,71 @@ run_gls_filter <- function(dy, kp, ks, lp, lR, jump_threshold, jump_power, smoot
 # ==============================================================================
 # MAP OBJECTIVE FUNCTION
 # ==============================================================================
-objective_map_3d <- function(theta, dy, energy_ratio, jump_threshold, jump_power, smooth) {
+objective_map_3d <- function(theta, dy, priors, jump_threshold, jump_power) {
   ks <- exp(theta[1])
   kp <- ks + exp(theta[2])
   lR <- exp(theta[3])
-  lp <- energy_ratio * (kp / ks)
+  Vp <- priors$energy_ratio
 
-  # Pass hyperparameters to the filter
-  res <- run_gls_filter(dy, kp, ks, lp, lR, jump_threshold, jump_power, smooth)
+  # Pass hyperparameters to the causal filter
+  res <- run_gls_filter(dy, kp, ks, Vp, lR, jump_threshold, jump_power)
 
-  # ----------------------------------------------------------------------------
-  # Maximum A Posteriori (MAP) Priors
-  # ----------------------------------------------------------------------------
-
-  # Sympathetic: Mode = 0.10Hz, Strength = 3 (Lower strength = more diffuse)
-  ks_mode <- 0.10; ks_strength <- 3.0
+  ks_mode <- priors$ks_mode; ks_strength <- 3.0
   pen_ks  <- (ks_strength) * log(ks) - (ks_strength/ks_mode) * ks
 
-  # Vagal: Mode = 1.25Hz, Strength = 5 (Higher strength = more concentrated)
-  kp_mode <- 1.25; kp_strength <- 5.0
+  kp_mode <- priors$kp_mode; kp_strength <- 5.0
   pen_kp  <- (kp_strength) * log(kp) - (kp_strength/kp_mode) * kp
 
-  # Jitter: Mode = 0.0003, Shape = 2.0 (Higher shape = steeper descent from mode)
-  lR_mode <- 0.0003; lR_shape <- 2.0
+  lR_mode <- 0.0005; lR_shape <- 2.0
   pen_lR  <- -(lR_shape + 1) * log(lR) - (lR_mode * (lR_shape + 1)) / lR
 
-  # Return negative log-posterior (Cost function to minimize)
-  return(-(res$LL_star + pen_ks + pen_kp + pen_lR))
+  target_ratio <- 10.0
+  prior_weight <- 11.0
+  U_mode <- (target_ratio - 1.0) / (target_ratio + 1.0)
+  alpha_minus_1 <- U_mode * prior_weight
+  beta_minus_1  <- (1.0 - U_mode) * prior_weight
+
+  U     <- (kp - ks) / (kp + ks)
+  One_U <- (2.0 * ks) / (kp + ks)
+  pen_topology <- (alpha_minus_1 * log(U)) + (beta_minus_1 * log(One_U))
+
+  return(-(res$LL_star + pen_ks + pen_kp + pen_lR + pen_topology))
 }
 
 # ==============================================================================
 # 4. OPTIMIZATION ROUTINE
 # ==============================================================================
-fit_model <- function(dy, jump_threshold = 0.15, jump_power = 8, smooth = TRUE) {
+fit_model <- function(dy, jump_threshold = 0.1, jump_power = 10) {
   if (any(is.na(dy))) dy <- na.omit(dy)
   priors <- extract_spectral_priors(dy)
-  theta_init <- c(log(0.05), log(0.35 - 0.05), log(0.001))
 
-  cat("\nRunning 3D BFGS Optimization with MAP Penalties...\n")
+  theta_init <- c(log(max(priors$ks_mode, 0.01)), log(max(priors$kp_mode - priors$ks_mode, 0.05)), log(0.001))
+
+  cat("\nRunning 3D BFGS Optimization with Reparameterized MAP Penalties...\n")
   opt_res <- optim(par = theta_init, fn = objective_map_3d, dy = dy,
-                   energy_ratio = priors$energy_ratio,
+                   priors = priors,
                    jump_threshold = jump_threshold,
                    jump_power = jump_power,
-                   smooth = smooth,
                    method = "BFGS",
                    control = list(maxit = 1000, trace = 1))
 
-  # Extract Final Parameters
   ks_opt <- exp(opt_res$par[1])
   kp_opt <- ks_opt + exp(opt_res$par[2])
   lR_opt <- exp(opt_res$par[3])
-  lp_opt <- priors$energy_ratio * (kp_opt / ks_opt)
+  Vp_opt <- priors$energy_ratio
 
-  # Final pass to extract states & innovations
-  final_res <- run_gls_filter(dy, kp_opt, ks_opt, lp_opt, lR_opt, jump_threshold, jump_power, smooth)
+  final_res <- run_gls_filter(dy, kp_opt, ks_opt, Vp_opt, lR_opt, jump_threshold, jump_power)
 
   return(list(
     dy = dy, time = cumsum(dy),
+    priors_obj = priors,
     params = list(
-      ks = ks_opt, kp = kp_opt, lR = lR_opt, lp = lp_opt,
+      ks = ks_opt, kp = kp_opt, lR = lR_opt, lp = Vp_opt,
       nu0 = final_res$nu0, sig2 = final_res$sig2,
-      sig_p = sqrt(lp_opt * final_res$sig2), sig_s = sqrt(final_res$sig2),
+      sig_p = sqrt(2 * kp_opt * Vp_opt * final_res$sig2),
+      sig_s = sqrt(2 * ks_opt * 1.0 * final_res$sig2),
       energy_ratio = priors$energy_ratio,
-      # Save hyperparameters for reporting
-      jump_threshold = jump_threshold,
-      jump_power = jump_power
+      jump_threshold = jump_threshold, jump_power = jump_power
     ),
     states = final_res$states,
     innovations = final_res$std_innov,
@@ -318,14 +268,13 @@ fit_model <- function(dy, jump_threshold = 0.15, jump_power = 8, smooth = TRUE) 
 # ==============================================================================
 # 5. REPORT PARAMETERS
 # ==============================================================================
-report_model <- function(fit_obj, smooth = TRUE) {
+report_model <- function(fit_obj) {
   if (!requireNamespace("numDeriv", quietly = TRUE)) install.packages("numDeriv")
   if (!requireNamespace("MASS", quietly = TRUE)) install.packages("MASS")
 
   dy <- fit_obj$dy
   p <- fit_obj$params
 
-  # Transformed optimization space
   theta_opt <- c(log(p$ks), log(p$kp - p$ks), log(p$lR))
 
   cat("\nCalculating standard errors via exact Delta Method...\n")
@@ -333,11 +282,9 @@ report_model <- function(fit_obj, smooth = TRUE) {
     func = objective_map_3d,
     x = theta_opt,
     dy = dy,
-    energy_ratio = p$energy_ratio,
-    # Thread hyperparameters into exact Delta Method
+    priors = fit_obj$priors_obj,
     jump_threshold = p$jump_threshold,
-    jump_power = p$jump_power,
-    smooth = smooth
+    jump_power = p$jump_power
   )
 
   # Safely invert Hessian for covariance matrix
@@ -418,71 +365,80 @@ report_model <- function(fit_obj, smooth = TRUE) {
 }
 
 # ==============================================================================
-# 6. VISUALIZATION (Phase Reconstruction & Topology)
+# UPGRADED VISUALIZATION (Causal Indexing)
 # ==============================================================================
 visualize_model <- function(fit_obj) {
   dy <- fit_obj$dy
   N <- length(dy)
   time_cum <- fit_obj$time
-
-  # Rate states (for topology and raw tracking)
-  X_p <- fit_obj$states[, 1]
-  X_s <- fit_obj$states[, 2]
-
-  # Phase states (exact accumulated area over the beat)
-  Phase_p <- fit_obj$states[, 3]
-  Phase_s <- fit_obj$states[, 4]
-
   p <- fit_obj$params
 
-  # 1. PHASE-DOMAIN RECONSTRUCTION
-  # Uses the mathematical inverse of the IPFM integration: dt = (1.0 + Phase_p - Phase_s) / nu0
+  # DIRECT STATE EXTRACTION
+  X_p <- fit_obj$states[, "X_p"]
+  X_s <- fit_obj$states[, "X_s"]
+
+  X_p_se  <- sqrt(pmax(fit_obj$states[, "X_p_var"], 0))
+  X_s_se  <- sqrt(pmax(fit_obj$states[, "X_s_var"], 0))
+  rr_se   <- sqrt(pmax(fit_obj$states[, "rr_var"], 0))
+
+  Phase_p <- fit_obj$states[, "Phase_p"]
+  Phase_s <- fit_obj$states[, "Phase_s"]
+
+  # 1. PHASE-DOMAIN RECONSTRUCTION WITH 95% CI
   implied_rr <- (1.0 + Phase_p - Phase_s) / p$nu0
-
-  df_fit <- data.frame(Time = time_cum, Observed = dy, Implied = implied_rr)
-
-  pA <- ggplot(df_fit, aes(x = Time)) +
-    geom_line(aes(y = Observed, color = "Observed RR"), linewidth = 1/3, alpha = 0.5) +
-    geom_line(aes(y = Implied, color = "Filtered RR"), linewidth = 1/3) +
-    scale_color_manual(values = c("Observed RR" = "gray50",
-                                  "Filtered RR" = "darkred")) +
-    labs(title = "Phase-Domain Filtering & Predictive Fit",
-         y = "RR Interval (s)",
-         x = "") +
-    theme_classic() +
-    theme(legend.title = element_blank(),
-          legend.position = "top")
-
-  df_X <- data.frame(
-    Time = rep(time_cum, 2), Value = c(X_p, X_s),
-    State = factor(rep(c("Parasympathetic Drive", "Sympathetic Drive"), each = N),
-                   levels = c("Sympathetic Drive", "Parasympathetic Drive"))
+  df_fit <- data.frame(
+    Time     = time_cum,
+    Observed = dy,
+    Implied  = implied_rr,
+    Lower    = implied_rr - qnorm(0.975) * rr_se,
+    Upper    = implied_rr + qnorm(0.975) * rr_se
   )
 
-  pB <- ggplot(df_X, aes(x = Time, y = Value, color = State)) +
-    geom_hline(yintercept = 0, linetype = "dashed",
-               color = "black", alpha = 0.5) +
-    geom_line(linewidth = 1/3) +
-    scale_color_manual(values = c("Parasympathetic Drive" = "#4DB0D0",
-                                  "Sympathetic Drive" = "#DC5050")) +
-    labs(title = "Native Autonomic Drivers (Direct Tracking)",
-         y = "Amplitude (Hz)",
-         x = "Time (seconds)") +
+  pA <- ggplot(df_fit, aes(x = Time)) +
+    geom_ribbon(aes(ymin = Lower, ymax = Upper), fill = "darkred", alpha = 0.15) +
+    geom_line(aes(y = Observed, color = "Observed RR"), linewidth = 1/3, alpha = 0.4) +
+    geom_line(aes(y = Implied, color = "Filtered RR"), linewidth = 0.5) +
+    scale_color_manual(values = c("Observed RR" = "gray50", "Filtered RR" = "darkred")) +
+    scale_x_continuous(expand = c(0,0)) +
+    labs(title = "Phase-Domain Filtering & Predictive Fit (with 95% CI)",
+         y = "RR Interval (s)", x = "") +
     theme_classic() +
-    theme(legend.title = element_blank(),
-          legend.position = "top")
+    theme(legend.title = element_blank(), legend.position = "top")
 
-  # 2. DYNAMIC ENERGY MAP FRAMING
+  # 2. NATIVE AUTONOMIC DRIVERS WITH 95% CI RIBBONS
+  df_X <- data.frame(
+    Time  = rep(time_cum, 2),
+    Value = c(X_p, X_s),
+    SE    = c(X_p_se, X_s_se),
+    State = factor(rep(c("Parasympathetic Drive", "Sympathetic Drive"), each = N),
+                   levels = c("Parasympathetic Drive", "Sympathetic Drive"))
+  )
+  df_X$Lower <- df_X$Value - qnorm(0.975) * df_X$SE
+  df_X$Upper <- df_X$Value + qnorm(0.975) * df_X$SE
+
+  pB <- ggplot(df_X, aes(x = Time, y = Value, color = State, fill = State)) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.3) +
+    geom_ribbon(aes(ymin = Lower, ymax = Upper), alpha = 0.12, color = NA) +
+    geom_line(linewidth = 0.5) +
+    scale_color_manual(values = c("Parasympathetic Drive" = "#4DB0D0", "Sympathetic Drive" = "#DC5050")) +
+    scale_fill_manual(values = c("Parasympathetic Drive" = "#4DB0D0", "Sympathetic Drive" = "#DC5050")) +
+    scale_x_continuous(expand = c(0,0)) +
+    labs(title = "Native Autonomic Drivers (95% CI)",
+         y = "Amplitude (Hz)", x = "Time (seconds)") +
+    theme_classic() +
+    theme(legend.title = element_blank(), legend.position = "top")
+
+  # 3. DYNAMIC ENERGY MAP FRAMING (Topology)
   Sigma_stat <- diag(c(p$sig_p^2 / (2 * p$kp), p$sig_s^2 / (2 * p$ks)))
-  inv_Sigma <- solve(Sigma_stat)
+  inv_Sigma  <- solve(Sigma_stat)
 
   p_range <- range(X_p); s_range <- range(X_s)
   margin_p <- diff(p_range) * 0.2; if(margin_p == 0) margin_p <- 0.01
   margin_s <- diff(s_range) * 0.2; if(margin_s == 0) margin_s <- 0.01
 
-  grid_p <- seq(p_range[1] - margin_p, p_range[2] + margin_p, length.out = 150)
-  grid_s <- seq(s_range[1] - margin_s, s_range[2] + margin_s, length.out = 150)
-  grid <- expand.grid(X_p = grid_p, X_s = grid_s)
+  grid_p <- seq(p_range[1] - margin_p, p_range[2] + margin_p, length.out = 120)
+  grid_s <- seq(s_range[1] - margin_s, s_range[2] + margin_s, length.out = 120)
+  grid   <- expand.grid(X_p = grid_p, X_s = grid_s)
 
   grid$Energy <- apply(grid, 1, function(v) { 0.5 * as.numeric(t(v) %*% inv_Sigma %*% v) })
   max_E <- quantile(grid$Energy, 0.95)
@@ -492,20 +448,69 @@ visualize_model <- function(fit_obj) {
 
   pC <- ggplot() +
     geom_raster(data = grid, aes(x = X_p, y = X_s, fill = Energy)) +
-    geom_contour(data = grid, aes(x = X_p, y = X_s, z = Energy), color = "white", alpha = 0.2, bins = 20) +
-    geom_path(data = df_traj, aes(x = X_p, y = X_s, color = Time),
-              arrow = arrow(type = "closed", length = unit(0.06, "inches"))) +
+    geom_contour(data = grid, aes(x = X_p, y = X_s, z = Energy), color = "white", alpha = 0.15, bins = 15) +
+    geom_path(data = df_traj, aes(x = X_p, y = X_s, color = Time, alpha = Time),
+              arrow = ggplot2::arrow(type = "closed", length = unit(0.05, "inches")),
+              show.legend = FALSE) +
     scale_fill_viridis_c(option = "mako", name = "Energy (U)") +
     scale_color_viridis_c(option = "plasma", guide = "none") +
     scale_x_continuous(expand = c(0,0)) +
     scale_y_continuous(expand = c(0,0)) +
     labs(title = "Autonomic Phase Space Topology",
-         x = "Parasympathetic Drive (Hz)",
-         y = "Sympathetic Drive (Hz)") +
+         x = "Parasympathetic Drive (Hz)", y = "Sympathetic Drive (Hz)") +
     theme_classic() +
     theme(legend.position = "top")
 
-  (pA / pB) | pC
+  # 4. EMPIRICAL VS RECONSTRUCTED POWER SPECTRUM (via base R spectrum)
+  fs <- 4
+  t_grid <- seq(min(time_cum), max(time_cum), by = 1/fs)
+
+  # A. Observed Heart Rate Spectrum
+  hr_obs <- 1 / dy
+  hr_obs_interp <- spline(time_cum, hr_obs, xout = t_grid)$y
+  hr_obs_ts <- ts(hr_obs_interp - mean(hr_obs_interp), frequency = fs)
+
+  # Use spans = c(3,3) for a mild Daniell smoother to prevent raw periodogram noise
+  spec_obs <- spectrum(hr_obs_ts, spans = c(3, 5), plot = FALSE)
+  emp_freqs <- spec_obs$freq
+  emp_power <- spec_obs$spec
+
+  # B. Filtered/Reconstructed Heart Rate Spectrum
+  hr_filt <- 1 / implied_rr
+  hr_filt_interp <- spline(time_cum, hr_filt, xout = t_grid)$y
+  hr_filt_ts <- ts(hr_filt_interp - mean(hr_filt_interp), frequency = fs)
+
+  spec_filt <- spectrum(hr_filt_ts, spans = c(3, 3), plot = FALSE)
+  filt_power <- spec_filt$spec
+
+  df_psd <- data.frame(
+    Frequency = rep(emp_freqs, 2),
+    Power     = c(emp_power, filt_power),
+    Component = factor(rep(c("Observed Empirical PSD", "Filtered Reconstructed PSD"), each = length(emp_freqs)),
+                       levels = c("Observed Empirical PSD", "Filtered Reconstructed PSD"))
+  )
+
+  # Restrict to standard HRV physiological bandwidth (0.01 Hz to 0.50 Hz)
+  df_psd <- df_psd[df_psd$Frequency >= 0.01 & df_psd$Frequency <= 0.50, ]
+
+  y_floor <- min(df_psd$Power, na.rm = TRUE) * 0.5
+
+  pD <- ggplot(df_psd, aes(x = Frequency, y = Power, color = Component)) +
+    annotate("rect", xmin = 0.04, xmax = 0.15, ymin = y_floor, ymax = Inf, fill = "red", alpha = 0.08, ) +
+    annotate("rect", xmin = 0.15, xmax = 0.40, ymin = y_floor, ymax = Inf, fill = "blue", alpha = 0.08, ) +
+    geom_line() +
+    scale_color_manual(values = c("Observed Empirical PSD" = "gray50",
+                                  "Filtered Reconstructed PSD" = "darkred")) +
+    scale_x_continuous(expand = c(0,0), breaks = c(0.04, 0.15, 0.40, 0.50)) +
+    scale_y_continuous(transform = "log10", labels = scales::label_log(),
+                       expand = c(0,0)) +
+    labs(title = "Empirical vs. Filter Reconstructed PSD",
+         x = "Frequency (Hz)", y = "Power Spectral Density (log-scale)") +
+    theme_classic() +
+    theme(legend.position = "top", legend.title = element_blank())
+
+  # Composite output using patchwork in an elegant, symmetric 2x2 grid
+  ((pA | pC) / (pB | pD))
 }
 
 # ==============================================================================
@@ -661,10 +666,10 @@ batch_process_hrv <- function(rr_list, jump_threshold = 0.15, jump_power = 8, da
       Beat = seq_len(N_beats),
       Time = fit_res$time,
       RR_Interval = dy,
-      X_p = fit_res$states[, 1],
-      X_s = fit_res$states[, 2],
-      Phase_p = fit_res$states[, 3],
-      Phase_s = fit_res$states[, 4],
+      X_p = fit_res$states[, "X_p"],
+      X_s = fit_res$states[, "X_s"],
+      Phase_p = fit_res$states[, "Phase_p"],
+      Phase_s = fit_res$states[, "Phase_s"],
       Innovation = z,
       stringsAsFactors = FALSE
     )

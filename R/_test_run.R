@@ -7,14 +7,14 @@ source("R/_functions.R")
 # -------------------------------------------------------------------------
 
 ## Load test data
-rr_data <- (readLines("data/prcp/12754.txt") |> as.numeric())
+rr_data <- (readLines("data/prcp/12726.txt") |> as.numeric())
 
 plot(rr_data, type = "o", pch = "•")
 
 fit <- fit_model(rr_data)
 
 fig <- visualize_model(fit) / diagnose_model(fit) +
-  patchwork::plot_layout(heights = c(1,0.75))
+  patchwork::plot_layout(heights = c(1,1,2), ncol = 1, nrow = 3)
 
 ggsave(filename = "manuscript/_example_fig.png", plot = fig,
        device = "png", scale = 6, height = 500, width = 500, units = "px")
@@ -25,6 +25,8 @@ report_model(fit)
 
 ## Load data
 rr_data <- (readLines("data/rri-jabf.txt") |> as.numeric())/1000
+rr_data <- (readLines("data/tmst/007.txt") |> as.numeric())
+rr_data <- (readLines("data/tmst/008.txt") |> as.numeric())
 
 plot(cumsum(rr_data)/60, rr_data, type = "o", pch = "•")
 

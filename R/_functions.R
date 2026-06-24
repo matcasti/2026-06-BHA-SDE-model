@@ -471,7 +471,7 @@ visualize_model <- function(fit_obj) {
   hr_obs_ts <- ts(hr_obs_interp - mean(hr_obs_interp), frequency = fs)
 
   # Use spans = c(3,3) for a mild Daniell smoother to prevent raw periodogram noise
-  spec_obs <- spectrum(hr_obs_ts, spans = c(3, 3), plot = FALSE)
+  spec_obs <- spectrum(hr_obs_ts, spans = c(3, 5), plot = FALSE)
   emp_freqs <- spec_obs$freq
   emp_power <- spec_obs$spec
 
@@ -496,8 +496,8 @@ visualize_model <- function(fit_obj) {
   y_floor <- min(df_psd$Power, na.rm = TRUE) * 0.5
 
   pD <- ggplot(df_psd, aes(x = Frequency, y = Power, color = Component)) +
-    annotate("rect", xmin = 0.04, xmax = 0.15, ymin = y_floor, ymax = Inf, fill = "red", alpha = 0.04, ) +
-    annotate("rect", xmin = 0.15, xmax = 0.40, ymin = y_floor, ymax = Inf, fill = "blue", alpha = 0.04, ) +
+    annotate("rect", xmin = 0.04, xmax = 0.15, ymin = y_floor, ymax = Inf, fill = "red", alpha = 0.08, ) +
+    annotate("rect", xmin = 0.15, xmax = 0.40, ymin = y_floor, ymax = Inf, fill = "blue", alpha = 0.08, ) +
     geom_line() +
     scale_color_manual(values = c("Observed Empirical PSD" = "gray50",
                                   "Filtered Reconstructed PSD" = "darkred")) +
@@ -510,7 +510,7 @@ visualize_model <- function(fit_obj) {
     theme(legend.position = "top", legend.title = element_blank())
 
   # Composite output using patchwork in an elegant, symmetric 2x2 grid
-  (pA | pC) / (pB | pD)
+  ((pA | pC) / (pB | pD))
 }
 
 # ==============================================================================
