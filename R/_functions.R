@@ -250,7 +250,7 @@ objective_map_3d <- function(theta, dy, priors, jump_threshold, jump_power, smoo
   kp <- ks + exp(theta[2])
   lR <- exp(theta[3])
 
-  # Vp is the pure amplitude ratio. NO longer entangled with (kp / ks)!
+  # Vp is the pure amplitude ratio.
   Vp <- priors$energy_ratio
 
   # Pass hyperparameters to the filter (Note: signature of run_gls_filter does not change)
@@ -266,7 +266,28 @@ objective_map_3d <- function(theta, dy, priors, jump_threshold, jump_power, smoo
   lR_mode <- 0.0005; lR_shape <- 2.0
   pen_lR  <- -(lR_shape + 1) * log(lR) - (lR_mode * (lR_shape + 1)) / lR
 
-  return(-(res$LL_star + pen_ks + pen_kp + pen_lR))
+  # This actively penalizes structural 1D collapse during finite-sample tracking.
+  # by dynamically building a Beta prior around an explicit physiological ratio.
+
+  target_ratio <- 10.0  # The physiological target for kp/ks (conservative 10:1)
+  prior_weight <- 11.0  # The strength of the prior (effective pseudo-beats)
+
+  # Map the biological target ratio to the geometric interval (0, 1)
+  U_mode <- (target_ratio - 1.0) / (target_ratio + 1.0)
+
+  # Distribute the statistical weight dynamically based on the target mode
+  alpha_minus_1 <- U_mode * prior_weight
+  beta_minus_1  <- (1.0 - U_mode) * prior_weight
+
+  # Calculate the empirical geometric metrics of the current optimizer step
+  U     <- (kp - ks) / (kp + ks)
+  One_U <- (2.0 * ks) / (kp + ks)
+
+  # Apply the log-probability density (the topological penalty)
+  pen_topology <- (alpha_minus_1 * log(U)) + (beta_minus_1 * log(One_U))
+
+  # Return negative joint posterior for minimization (Subtracting all penalties)
+  return(-(res$LL_star + pen_ks + pen_kp + pen_lR + pen_topology))
 }
 
 # ==============================================================================
