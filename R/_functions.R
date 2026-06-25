@@ -510,7 +510,7 @@ visualize_model <- function(fit_obj) {
     theme(legend.position = "top", legend.title = element_blank())
 
   # Composite output using patchwork in an elegant, symmetric 2x2 grid
-  ((pA | pC) / (pB | pD))
+  ((pA / pB / pD) | pC)
 }
 
 # ==============================================================================
@@ -534,10 +534,9 @@ diagnose_model <- function(fit_obj) {
 
   df_qq <- data.frame(z = z)
   pA <- ggplot(df_qq, aes(sample = z)) +
-    stat_qq(color = "darkblue", alpha = 0.5) +
-    stat_qq_line(color = "red", linetype = "dashed") +
+    stat_qq(color = "darkred", pch = 16) +
+    stat_qq_line(linetype = "dashed") +
     labs(title = "Q-Q Plot of Phase Innovations",
-         subtitle = "Tests Linear Observation Gaussianity",
          x = "Theoretical Normal",
          y = "Empirical") +
     theme_classic()
@@ -546,32 +545,29 @@ diagnose_model <- function(fit_obj) {
   df_cdf <- data.frame(U = sort(U_k), CDF = empirical_cdf(sort(U_k)))
 
   pB <- ggplot(df_cdf, aes(x = U, y = CDF)) +
-    geom_step(color = "darkgreen", linewidth = 1) +
-    geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
-    geom_abline(slope = 1, intercept = bound, color = "gray", linetype = "dotted", linewidth=0.8) +
-    geom_abline(slope = 1, intercept = -bound, color = "gray", linetype = "dotted", linewidth=0.8) +
+    geom_step(color = "darkred", linewidth = 1) +
+    geom_abline(slope = 1, intercept = 0) +
+    geom_abline(slope = 1, intercept = bound, color = "gray") +
+    geom_abline(slope = 1, intercept = -bound, color = "gray") +
     coord_cartesian(ylim = c(0, 1), xlim = c(0, 1)) +
     labs(title = "Time-Rescaling KS-Plot",
-         subtitle = "Validates Exact IPFM Boundary Crossings",
          x = "Theoretical Uniform(0,1)",
          y = "Empirical CDF") +
     theme_classic()
 
-  acf_data <- acf(z, plot = FALSE, lag.max = 40)
+  acf_data <- pacf(z, plot = FALSE, lag.max = 40)
   df_acf <- data.frame(lag = acf_data$lag, acf = acf_data$acf)
 
   pC <- ggplot(df_acf, aes(x = lag, y = acf)) +
     geom_segment(aes(xend = lag, yend = 0),
-                 color = "black",
-                 linewidth = 0.8) +
-    geom_hline(yintercept = c(-1.96/sqrt(N), 1.96/sqrt(N)),
-               color = "red",
-               linetype = "dashed") +
-    geom_hline(yintercept = 0, color = "black") +
+                 linewidth = 1) +
+    geom_hline(yintercept = c(-qnorm(0.975)/sqrt(N), qnorm(0.975)/sqrt(N)),
+               color = "gray") +
+    geom_hline(yintercept = 0) +
+    scale_y_continuous(limits = c(NA, 1)) +
     labs(title = "Autocorrelation of Innovations",
-         subtitle = "Tests for Unmodeled Kinetics",
          x = "Lag (Heartbeats)",
-         y = "ACF") +
+         y = "Partial Autocorrelation Function") +
     theme_classic()
 
   pD <- ggplot(df_qq, aes(x = z)) +
@@ -583,12 +579,11 @@ diagnose_model <- function(fit_obj) {
                   color = "black",
                   linetype = "dashed") +
     labs(title = "Exact Gaussian Innovations",
-         subtitle = "Validating Phase-Domain Linearity",
          x = "Standardized Residuals",
          y = "Density") +
     theme_classic()
 
-  (pA | pB) / (pC | pD)
+  (pA / pB / pC / pD)
 }
 
 # ==============================================================================
