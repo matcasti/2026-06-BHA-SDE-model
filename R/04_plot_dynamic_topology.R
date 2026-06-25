@@ -16,7 +16,6 @@ color_branches <- c("Parasympathetic" = "#4DB0D0",
                     "Sympathetic"     = "#DC5050")
 
 # 2. Load Processed Models and Summaries ---------------------------------------
-cat("Loading raw models and population summaries...\n")
 df_summary <- readRDS("results/df_population_summary.rds")
 raw_models <- readRDS("results/list_raw_models.rds")
 
@@ -30,9 +29,6 @@ target_exercise <- df_summary %>%
   filter(Dataset == "Exercise_Recovery", Converged == TRUE) %>%
   arrange(desc(NumBeats)) %>%
   slice(1) %>% pull(SubjectID)
-
-cat(sprintf("Selected Tilt Subject: %s\n", target_tilt))
-cat(sprintf("Selected Exercise Subject: %s\n", target_exercise))
 
 # ==============================================================================
 # 3. CORE PLOTTING FUNCTION (Upgraded for Paper Aesthetics)
@@ -73,8 +69,8 @@ generate_topology_figure <- function(fit_obj, protocol_name = "Protocol", n = NU
     geom_line(aes(y = Implied, color = "Filtered RR"), linewidth = 0.5) +
     scale_color_manual(values = c("Observed RR" = "gray60", "Filtered RR" = "darkred")) +
     scale_x_continuous(expand = c(0,0), breaks = NULL) +
-    labs(title = "I. Phase-Domain Filtering & Predictive Fit",
-         subtitle = "Estimated from the model",
+    labs(title = "I. Phase-Domain Filtering",
+         subtitle = "Predictive Fit estimated from the model",
          y = "RR Interval (s)", x = NULL) +
     theme_classic() +
     theme(legend.title = element_blank(),
@@ -144,7 +140,7 @@ generate_topology_figure <- function(fit_obj, protocol_name = "Protocol", n = NU
     scale_x_continuous(expand = c(0,0)) +
     scale_y_continuous(expand = c(0,0)) +
     labs(title = "IV. Phase Space Topology & Trajectory",
-         subtitle = "Background: Exact Autonomic Energy Basin",
+         subtitle = "Exact Potential Autonomic Energy Basin",
          x = expression("Parasympathetic Drive " * (X[p])),
          y = expression("Sympathetic Drive " * (X[s]))) +
     theme_classic() +
@@ -210,21 +206,18 @@ generate_topology_figure <- function(fit_obj, protocol_name = "Protocol", n = NU
 # 4. GENERATE AND EXPORT FIGURES (Side-by-Side Comparison)
 # ==============================================================================
 
-cat("\nGenerating Topology Figure for Tilt Protocol...\n")
+## Generating Topology Figure for Tilt Protocol...
 fit_tilt <- raw_models[["12726"]]
 fig_tilt <- generate_topology_figure(fit_tilt, protocol_name = "A. Orthostatic Tilt Transition", n = 1100)
 
-cat("\nGenerating Topology Figure for Exercise Protocol...\n")
+## Generating Topology Figure for Exercise Protocol...
 fit_exercise <- raw_models[["007"]]
 fig_exercise <- generate_topology_figure(fit_exercise, protocol_name = "B. Exercise & Metabolic Recovery")
 
-cat("\nCombining into side-by-side composite...\n")
-# wrap_elements() protects your nested layouts (A,B,C,D) from collapsing
-fig_combined <- wrap_elements(fig_tilt) | wrap_elements(fig_exercise)
+## Combining into side-by-side composite...
+fig_combined <- wrap_elements(fig_tilt) / wrap_elements(fig_exercise)
 
-# Note: Width is significantly increased to accommodate two full layouts side-by-side
-ggsave("manuscript/figures/fig3_dynamic_topology_comparison.png", plot = fig_combined,
-       width = 20, height = 10, dpi = 300)
-cat("Saved: manuscript/figures/fig3_dynamic_topology_comparison.png\n")
 
-cat("\nScript 04 complete.\n")
+ggsave(filename = "manuscript/figures/fig3_dynamic_topology_comparison.png",
+       plot = fig_combined,
+       width = 220, height = 350, dpi = 300, scale = 13, units = "px")

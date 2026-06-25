@@ -12,14 +12,13 @@ library(patchwork)
 library(scales)
 
 # 2. Load Aggregated Data ------------------------------------------------------
-cat("Loading population datasets...\n")
+
 df_summary <- readRDS("results/df_population_summary.rds")
 mat_pacf <- readRDS("results/mat_population_pacf.rds")
 
 # Filter for successfully converged models only
 df_valid <- df_summary %>% filter(Converged == TRUE)
 n_valid <- nrow(df_valid)
-cat(sprintf("Retained %d successfully converged subjects for plotting.\n", n_valid))
 
 df_valid$Dataset <- factor(
   x = df_valid$Dataset,
@@ -38,7 +37,6 @@ color_branches <- c("Parasympathetic" = "#4DB0D0",
 # ==============================================================================
 # FIGURE 1: ASYMPTOTIC VALIDATION PANEL (Section 3.1)
 # ==============================================================================
-cat("Generating Figure 1: Asymptotic Structural Validation...\n")
 
 # --- Panel A: Engineering Tracking Error (RMSE vs MAPE) ---
 # Log-log scatter plot to show tightly bounded tracking performance
@@ -140,13 +138,11 @@ fig1_layout <- (p1A | p1B | p1C) +
 
 ggsave("manuscript/figures/fig1_statistical_validation.png", plot = fig1_layout,
        width = 15, height = 7, dpi = 300)
-cat("Saved: manuscript/figures/fig1_statistical_validation.png\n")
 
 
 # ==============================================================================
 # FIGURE 2: BIOLOGICAL CONSTRUCT VALIDITY (Section 3.2)
 # ==============================================================================
-cat("Generating Figure 2: Biological Construct Validity (Parameter Densities)...\n")
 
 # --- Panel A: Autonomic Memory Decay (Impulse Response) ---
 # Calculate the global median clearance rates to draw the decay curves
@@ -246,7 +242,4 @@ fig2_layout <- p2_decay / (p2_kappa | p2_tau) +
 
 ggsave("manuscript/figures/fig2_biological_parameters.png", plot = fig2_layout,
        width = 12, height = 10, dpi = 300)
-cat("Saved: manuscript/figures/fig2_biological_parameters.png\n")
 
-cat("Script 03 complete.\n")
-# ==============================================================================

@@ -11,7 +11,6 @@ library(ggplot2)
 library(dplyr)
 library(patchwork)
 library(biwavelet)
-library(stats)
 
 # Define universal branch colors
 color_branches <- c("Parasympathetic" = "#4DB0D0",
@@ -20,11 +19,10 @@ color_wavelet  <- c("HF Power (Wavelet)" = "#85C1E9",
                     "LF Power (Wavelet)"  = "#E59866")
 
 # 2. Load Representative Subject Data ------------------------------------------
-cat("Loading raw models for benchmarking...\n")
 raw_models <- readRDS("results/list_raw_models.rds")
 
 # We use the Orthostatic Tilt subject as it contains a sharp, mechanical transition
-target_subj <- "12726" # Replace with the exact ID of your best Tilt subject
+target_subj <- "12726"
 fit_case <- raw_models[[target_subj]]
 
 time_cum <- fit_case$time
@@ -47,7 +45,6 @@ df_sde <- data.frame(
 # ==============================================================================
 # 3. COMPUTE CONTINUOUS WAVELET TRANSFORM (CWT Moving PSD)
 # ==============================================================================
-cat("Computing continuous Morlet wavelet-based moving PSD...\n")
 
 # Interpolate RR intervals to a regular 4 Hz time grid for wavelet analysis
 fs <- 4
@@ -138,9 +135,5 @@ pB <- ggplot(df_wavelet, aes(x = Time_Min)) +
 # Stack panels vertically to ensure aligned time axis grids
 fig_benchmark <- (pA / pB)
 
-ggsave("manuscript/figures/fig5_benchmarking_comparison.png", plot = fig_benchmark,
-       width = 12, height = 8, dpi = 300)
-cat("Saved: manuscript/figures/fig5_benchmarking_comparison.png\n")
-
-cat("Script 05 complete. The R analysis pipeline is now fully generated.\n")
-# ==============================================================================
+ggsave("manuscript/figures/fig4_benchmarking_comparison.png", plot = fig_benchmark,
+       width = 240, height = 160, dpi = 300, scale = 15, units = "px")

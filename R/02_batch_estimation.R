@@ -10,14 +10,7 @@
 # Source the core mathematical engine (contains zero execution code, only functions)
 source("R/01_model_engine.R")
 
-# Ensure an output directory exists for the exported results
-if (!dir.exists("results")) {
-  dir.create("results")
-  cat("Created 'results/' directory for exported data.\n")
-}
-
 # 2. Data Loading --------------------------------------------------------------
-cat("\nLoading cohort datasets...\n")
 
 # --- COHORT 1: Fantasia (Resting Baseline) ---
 files <- list.files("data/fantasia")
@@ -41,10 +34,8 @@ rr_exercise <- lapply(files, function(x) {
 })
 names(rr_exercise) <- gsub("\\.txt", "", files)
 
-cat("Data loading complete.\n")
-
-
 # 3. Execute Batch Processing --------------------------------------------------
+
 # We use the updated batch_process_hrv() which calculates RMSE, MAPE, and PACF.
 
 # A. Process Fantasia
@@ -70,7 +61,6 @@ report_batch_metrics(res_exercise)
 
 
 # 4. Global Aggregation --------------------------------------------------------
-cat("\nAggregating cohort results into global population structures...\n")
 
 # A. Population Summary (Parameters, Fit Statistics, KS, RMSE, MAPE)
 df_population_summary <- rbind(
@@ -93,12 +83,9 @@ df_population_states <- rbind(
   res_exercise$states
 )
 
-cat(sprintf("Aggregated %d total subjects.\n", nrow(df_population_summary)))
-
-
 # 5. Export Results for Visualization Scripts ----------------------------------
-cat("\nExporting highly compressed datasets to 'results/'...\n")
 
+## Exporting highly compressed datasets to 'results/'...
 saveRDS(df_population_summary, file = "results/df_population_summary.rds")
 saveRDS(mat_population_pacf, file = "results/mat_population_pacf.rds")
 saveRDS(df_population_states, file = "results/df_population_states.rds")
@@ -106,6 +93,3 @@ saveRDS(df_population_states, file = "results/df_population_states.rds")
 # Save the raw models (useful if you need to run diagnose_model() on a specific subject)
 raw_models_all <- c(res_fantasia$models, res_tilt$models, res_exercise$models)
 saveRDS(raw_models_all, file = "results/list_raw_models.rds")
-
-cat("Batch estimation pipeline complete.\n")
-# ==============================================================================
