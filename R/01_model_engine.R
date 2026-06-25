@@ -589,7 +589,7 @@ diagnose_model <- function(fit_obj) {
 # ==============================================================================
 # 8. BATCH PROCESSING & AGGREGATION ENGINE
 # ==============================================================================
-batch_process_hrv <- function(rr_list, jump_threshold = 0.15, jump_power = 8, dataset_tag = "Unknown") {
+batch_process_hrv <- function(rr_list, jump_threshold = 0.1, jump_power = 10, dataset_tag = "Unknown") {
   N_batch <- length(rr_list)
   subj_names <- names(rr_list)
   if (is.null(subj_names)) subj_names <- paste0("Subject_", seq_len(N_batch))
@@ -598,6 +598,7 @@ batch_process_hrv <- function(rr_list, jump_threshold = 0.15, jump_power = 8, da
   summary_rows <- list()
   states_list <- list()
   raw_fits <- list()
+  pacf_list <- list() # NEW: Store PACF vectors
 
   cat(sprintf("\nInitializing Batch Processing for Dataset: %s (%d recordings)\n", dataset_tag, N_batch))
 
@@ -620,19 +621,26 @@ batch_process_hrv <- function(rr_list, jump_threshold = 0.15, jump_power = 8, da
     p <- fit_res$params
     raw_fits[[s_name]] <- fit_res
 
-    # Extract Statistical Diagnostics natively matching diagnose_model()
     z <- fit_res$innovations
     N_beats <- length(z)
 
-    # 1. Kolmogorov-Smirnov Test (Time-Rescaling Theorem)
+    # --- NEW: UTILITARIAN TRACKING ERROR (RMSE & MAPE) ---
+    implied_rr <- (1.0 + fit_res$states[, "Phase_p"] - fit_res$states[, "Phase_s"]) / p$nu0
+    rmse_ms <- sqrt(mean((dy - implied_rr)^2)) * 1000  # Converted to milliseconds
+    mape_pct <- mean(abs((dy - implied_rr) / dy)) * 100 # Converted to percentage
+
+    # --- 1. Kolmogorov-Smirnov Test (Time-Rescaling Theorem) ---
     U_k <- pnorm(z)
     ks_res <- ks.test(U_k, "punif")
 
-    # 2. Autocorrelation Check (Up to 40 lags)
-    acf_res <- acf(z, lag.max = 40, plot = FALSE)
-    acf_vals <- acf_res$acf[-1] # Remove lag 0 (always 1.0)
-    acf_bound <- 1.96 / sqrt(N_beats)
-    significant_lags <- sum(abs(acf_vals) > acf_bound)
+    # --- NEW: 2. PACF Vector Extraction ---
+    # Use PACF to ensure all systematic memory is absorbed
+    pacf_res <- pacf(z, lag.max = 40, plot = FALSE)
+    pacf_vals <- as.numeric(pacf_res$acf)
+    pacf_list[[s_name]] <- pacf_vals
+
+    pacf_bound <- 1.96 / sqrt(N_beats)
+    significant_lags <- sum(abs(pacf_vals) > pacf_bound)
 
     # Pack Scalar Outputs
     summary_rows[[s_name]] <- data.frame(
@@ -648,9 +656,11 @@ batch_process_hrv <- function(rr_list, jump_threshold = 0.15, jump_power = 8, da
       Tau_S = 1 / p$ks,
       Tau_P = 1 / p$kp,
       Lambda_R = p$lR,
+      RMSE_ms = rmse_ms,   # Added
+      MAPE_pct = mape_pct, # Added
       KS_Stat = as.numeric(ks_res$statistic),
       KS_p_value = as.numeric(ks_res$p.value),
-      ACF_Violations = significant_lags,
+      PACF_Violations = significant_lags,
       stringsAsFactors = FALSE
     )
 
@@ -670,15 +680,17 @@ batch_process_hrv <- function(rr_list, jump_threshold = 0.15, jump_power = 8, da
     )
   }
 
-  # Bind into tidy metrics structures
   summary_df <- do.call(rbind, summary_rows)
   states_df  <- do.call(rbind, states_list)
+  pacf_mat   <- do.call(rbind, pacf_list) # Matrix of PACF vectors [Subjects x 40 Lags]
+
   rownames(summary_df) <- NULL
   rownames(states_df)  <- NULL
 
   return(list(
     summary = summary_df,
     states = states_df,
+    pacf_matrix = pacf_mat, # Exported for Script 3
     models = raw_fits
   ))
 }
