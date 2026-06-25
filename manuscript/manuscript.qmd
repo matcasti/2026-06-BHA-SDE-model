@@ -179,19 +179,19 @@ The validation pipeline concludes with a comparative evaluation against classica
 df <- readRDS("df_population_summary.rds") |>   subset(Converged == TRUE)
 
 # Goodness of fit
-mape <- sprintf("%.2f ± %.2f %%", mean(df$MAPE_pct), sd(df$MAPE_pct))
-rmse <- sprintf("%.1f ± %.1f ms", mean(df$RMSE_ms), sd(df$RMSE_ms))
-ks_dist <- sprintf("%.4f ± %.4f", mean(df$KS_Stat), sd(df$KS_Stat))
+mape <- tidybayes::median_qi(df$MAPE_pct) |> with(sprintf("%.3f, CI~95%%~[%.3f, %.3f]", y, ymin, ymax))
+rmse <- tidybayes::median_qi(df$RMSE_ms) |> with(sprintf("%.3f, CI~95%%~[%.3f, %.3f]", y, ymin, ymax))
+ks_dist <- tidybayes::median_qi(df$KS_Stat) |> with(sprintf("%.3f, CI~95%%~[%.3f, %.3f]", y, ymin, ymax))
 
 # Calculate critical D thresholds for context
 df <- df |> transform(Crit_D = 1.36 / sqrt(NumBeats))
 mean_crit_d <- sprintf("%.4f", mean(df$Crit_D))
 
 # Kinetic segregation
-kp_mean <- sprintf("%.2f ± %.2f Hz", mean(df$Kappa_P), sd(df$Kappa_P))
-taup_mean <- sprintf("%.2f seconds", mean(1 / df$Kappa_P))
-ks_mean <- sprintf("%.3f ± %.3f Hz", mean(df$Kappa_S), sd(df$Kappa_S))
-taus_mean <- sprintf("%.1f seconds", mean(1 / df$Kappa_S))
+kp_mean <- tidybayes::median_qi(df$Kappa_P) |> with(sprintf("%.2f Hz, CI~95%%~[%.2f, %.2f]", y, ymin, ymax))
+taup_mean <- tidybayes::median_qi(1 / df$Kappa_P) |> with(sprintf("%.2f seconds, CI~95%%~[%.2f, %.2f]", y, ymin, ymax))
+ks_mean <- tidybayes::median_qi(df$Kappa_S) |> with(sprintf("%.2f Hz, CI~95%%~[%.2f, %.2f]", y, ymin, ymax))
+taus_mean <- tidybayes::median_qi(1 / df$Kappa_S) |> with(sprintf("%.2f seconds, CI~95%%~[%.2f, %.2f]", y, ymin, ymax))
 
 # Allostatic shifts
 # Compare steady-state sympathetic variance (sig_s^2 / 2ks) between Rest, Tilt, Exercise
@@ -201,7 +201,7 @@ kw_test <- "$\\chi^2$ (2) = 37.55, p-value < 0.001"
 ```
 
 
-The continuous-time stochastic differential equation (SDE) framework was successfully fitted to the empirical RR-interval point processes. The optimization algorithm achieved high convergence rates across the resting baseline, orthostatic tilt, and exercise recovery datasets.To establish the operational validity of the framework, tracking fidelity was evaluated macroscopically across the entire population. The model demonstrated tightly bounded predictive performance, yielding a mean absolute percentage error (MAPE) of `r mape` and a root mean square error (RMSE) of `r rmse`.
+The continuous-time stochastic differential equation framework was successfully fitted to the empirical RR-interval point processes. The optimization algorithm achieved complete convergence rates across the resting baseline, orthostatic tilt, and exercise recovery datasets.To establish the operational validity of the framework, tracking fidelity was evaluated macroscopically across the entire population. The model provides compelling evidence of bounded predictive performance, yielding a mean absolute percentage error (MAPE) of `r mape` and a root mean square error (RMSE) of `r rmse`.
 
 Mathematical exactness of the phase-domain coordinate inversion was verified via the Time-Rescaling Theorem. To avoid the vulnerabilities of dichotomous p-value thresholding in large-$N$ continuous recordings, point-process validity was evaluated using the continuous Kolmogorov-Smirnov distance ($D$-statistic). The cohort demonstrated a mean geometric divergence of $D$ = `r ks_dist`, remaining rigorously constrained below the sample-adjusted critical thresholds (mean $D_{crit}$ = `r mean_crit_d`). Furthermore, cohort-averaged Partial Autocorrelation Functions (PACF) confirmed that the uncoupled Ornstein-Uhlenbeck states successfully absorbed the deterministic temporal dependencies of the data, reducing the residual measurement sequence to uncorrelated white noise (@fig-statistical-validation).
 
