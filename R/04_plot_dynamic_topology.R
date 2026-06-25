@@ -197,7 +197,7 @@ generate_topology_figure <- function(fit_obj, protocol_name = "Protocol", n = NU
   # ----------------------------------------------------------------------------
   # Left column: A, B, D stacked. Right column: C spanning the height.
   composite <- ((pA / pB / pD) | pC) +
-    plot_layout(widths = c(1, 1)) +
+    plot_layout(widths = c(1, 1.5)) +
     plot_annotation(
       title = protocol_name,
       theme = theme(plot.title = element_text(size = 16, face = "bold", hjust = 0.5))
