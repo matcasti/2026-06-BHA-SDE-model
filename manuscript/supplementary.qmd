@@ -116,13 +116,13 @@ $$
 
 # Goodness-of-Fit Diagnostic in Diffusion-Based Phase-Domain Architectures {#sec-diagnostics}
 
-The validation of point-process models using the Kolmogorov-Smirnov (KS) goodness-of-fit test relies heavily on the Time-Rescaling Theorem (TRT). However, it is mathematically necessary to distinguish between the stochastic assumptions of classical TRT (which assumes probabilistic event arrivals) and the SPARK framework (which models deterministic thresholds over stochastic diffusion paths). This section formally demonstrates that while the underlying generative noise distributions differ, the probability integral transform utilized in both frameworks ensures exact isomorphic equivalence for goodness-of-fit evaluation.
+The validation of point-process models using the Kolmogorov-Smirnov (KS) goodness-of-fit test relies heavily on the time-rescaling theorem (TRT). However, it is mathematically necessary to distinguish between the stochastic assumptions of classical TRT (which assumes probabilistic event arrivals) and the SPARK framework (which models deterministic thresholds over stochastic diffusion paths). This section formally demonstrates that while the underlying generative noise distributions differ, the probability integral transform utilized in both frameworks ensures exact isomorphic equivalence for goodness-of-fit evaluation.
 
 ## The Classical Poisson Arrival Formulation
 
 In classical point-process statistics, an event (heartbeat) is modeled as a stochastic arrival governed by a conditional intensity function $\lambda(t)$. Under this assumption, the generation of events follows an inhomogeneous Poisson process.
 
-The classical Time-Rescaling Theorem states that if the continuous intensity function $\lambda(t)$ is integrated over the exact observed inter-beat interval $[t_{k-1}, t_k]$, the resulting integrated intensity $\Lambda_k$ transforms the uneven temporal sequence into a homogeneous Poisson process with a unit rate:
+The classical time-rescaling theorem states that if the continuous intensity function $\lambda(t)$ is integrated over the exact observed inter-beat interval $[t_{k-1}, t_k]$, the resulting integrated intensity $\Lambda_k$ transforms the uneven temporal sequence into a homogeneous Poisson process with a unit rate:
 
 
 $$
@@ -188,4 +188,4 @@ $$
 u_k = \Phi(\epsilon_k) \sim \mathcal{U}(0,1)
 $$
 
-While the SPARK architecture operates strictly under diffusion assumptions rather than Poisson assumptions, the fundamental mechanism of the Time-Rescaling Theorem—isolating the true generative noise and mapping it to a uniform distribution via its exact CDF—remains mathematically intact. Consequently, testing the sequence $u_k = \Phi(\epsilon_k)$ for uniformity via the Kolmogorov-Smirnov distance constitutes a theoretically rigorous and exact execution of the Time-Rescaling principle for first-passage time point-process models.
+While the SPARK architecture operates strictly under diffusion assumptions rather than Poisson assumptions, the fundamental mechanism of the time-rescaling theorem, isolating the true generative noise and mapping it to a uniform distribution via its exact CDF, remains mathematically intact. Consequently, testing the sequence $u_k = \Phi(\epsilon_k)$ for uniformity via the Kolmogorov-Smirnov distance constitutes a theoretically rigorous and exact execution of the time-rescaling principle for first-passage time point-process models.
