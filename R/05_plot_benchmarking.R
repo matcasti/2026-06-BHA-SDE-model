@@ -136,4 +136,4 @@ pB <- ggplot(df_wavelet, aes(x = Time_Min)) +
 fig_benchmark <- (pA / pB)
 
 ggsave("manuscript/figures/fig4_benchmarking_comparison.png", plot = fig_benchmark,
-       width = 240, height = 160, dpi = 300, scale = 15, units = "px")
+       width = 160, height = 160, dpi = 300, scale = 15, units = "px")

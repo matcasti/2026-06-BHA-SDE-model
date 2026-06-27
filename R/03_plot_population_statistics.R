@@ -52,7 +52,7 @@ p1A <- ggplot(df_valid, aes(x = MAPE_pct, y = RMSE_ms, fill = Dataset)) +
        x = "Mean Absolute Percentage Error (%)",
        y = "Root Mean Square Error (ms)") +
   theme_classic() +
-  theme(legend.position = "bottom",
+  theme(legend.position = "none",
         strip.background = element_blank(),
         strip.text = element_blank(),
         legend.title = element_blank(),
@@ -78,20 +78,24 @@ df_pacf <- df_pacf_raw %>%
     n_group = n(),
     Mean = mean(PACF, na.rm = TRUE),
     SD = sd(PACF, na.rm = TRUE),
-    Lower = Mean - 1.96 * (SD / sqrt(n_group)),
-    Upper = Mean + 1.96 * (SD / sqrt(n_group)),
+    Lower = Mean - qnorm(0.975) * (SD / sqrt(n_group)),
+    Upper = Mean + qnorm(0.975) * (SD / sqrt(n_group)),
     .groups = "drop"
   )
 
 # Theoretical global 95% white noise bound
-avg_N <- mean(df_valid$NumBeats)
-ci_bound <- 1.96 / sqrt(avg_N)
+ci_bounds <- df_valid |>
+  group_by(Dataset) |>
+  summarise(
+    avg_N = mean(NumBeats),
+    ci_bound = qnorm(0.975) / sqrt(avg_N)
+  )
 
 # 4. Updated Plot: Map color and fill to Dataset
 p1B <- ggplot(df_pacf, aes(x = Lag, y = Mean, color = Dataset, fill = Dataset)) +
   facet_grid(rows = vars(Dataset)) +
-  annotate("rect", xmin = -Inf, xmax = Inf, ymin = -ci_bound, ymax = ci_bound,
-           fill = "gray80", alpha = 0.4) +
+  geom_rect(data = ci_bounds, aes(xmin = -Inf, xmax = Inf, ymax = ci_bound, ymin = -ci_bound, x = NA, y = 0),
+            fill = "gray80", col = 0, alpha = 0.4) +
   geom_hline(yintercept = 0, color = "black", linewidth = 0.5) +
   # Plot dataset-specific ribbons and lines
   geom_ribbon(aes(ymin = Lower, ymax = Upper), alpha = 0.3, color = NA) +
@@ -99,36 +103,32 @@ p1B <- ggplot(df_pacf, aes(x = Lag, y = Mean, color = Dataset, fill = Dataset)) 
   geom_point(size = 1.2) +
   scale_color_manual(values = color_cohorts) +
   scale_fill_manual(values = color_cohorts) +
-  scale_y_continuous(expand = c(0,0), limits = c(-.3,.3)) +
+  scale_y_continuous(expand = c(0,0)) +
   labs(title = "B. Cohort-Specific PACF",
        subtitle = "Residual innovations reduced to white noise",
        x = "Cardiac Lag (Beats)",
        y = "Partial Autocorrelation") +
   theme_classic() +
-  theme(legend.position = "bottom",
+  theme(legend.position = "none",
         strip.background = element_blank(),
         strip.text = element_blank(),
         legend.title = element_blank(),
         plot.title = element_text(face = "bold"))
 
 # --- Panel C: Mathematical Exactness (KS-Distance Density) ---
-# Theoretical critical D-statistic threshold for alpha = 0.05
-crit_D <- 1.36 / sqrt(avg_N)
 
 p1C <- ggplot(df_valid, aes(x = KS_Stat, fill = Dataset, col = Dataset)) +
   facet_grid(rows = vars(Dataset)) +
   geom_density(alpha = 0.7, linewidth = 1, trim = FALSE) +
-  geom_vline(xintercept = crit_D, linetype = 2) +
   scale_fill_manual(values = color_cohorts, name = "Cohort", aesthetics = c("fill", "color")) +
-  scale_x_continuous(limits = c(0, max(df_valid$KS_Stat)),
-                     expand = c(0,0)) +
+  scale_x_continuous(expand = c(0,0), limits = c(0,NA)) +
   scale_y_continuous(expand = c(0,0,0.25,0)) +
   labs(title = "C. Time-Rescaling Theorem Proof",
        subtitle = "KS D-statistic aggregation (Geometric Distance)",
        x = "Kolmogorov-Smirnov Distance (D-Statistic)",
        y = "Density") +
   theme_classic() +
-  theme(legend.position = "bottom",
+  theme(legend.position = "none",
         legend.title = element_blank(),
         plot.title = element_text(face = "bold"))
 
@@ -136,8 +136,9 @@ p1C <- ggplot(df_valid, aes(x = KS_Stat, fill = Dataset, col = Dataset)) +
 fig1_layout <- (p1A | p1B | p1C) +
   plot_layout(widths = c(1, 1, 1))
 
-ggsave("manuscript/figures/fig1_statistical_validation.png", plot = fig1_layout,
-       width = 15, height = 7, dpi = 300)
+ggsave(filename = "manuscript/figures/fig1_statistical_validation.png",
+       plot = fig1_layout, width = 250, height = 100, dpi = 300, scale = 15,
+       units = "px")
 
 
 # ==============================================================================
@@ -240,6 +241,7 @@ p2_tau <- ggplot(df_long_tau, aes(y = Branch, x = Tau, fill = Branch)) +
 fig2_layout <- p2_decay / (p2_kappa | p2_tau) +
   plot_layout(heights = c(1, 2))
 
-ggsave("manuscript/figures/fig2_biological_parameters.png", plot = fig2_layout,
-       width = 12, height = 10, dpi = 300)
+ggsave(filename = "manuscript/figures/fig2_biological_parameters.png",
+       plot = fig2_layout, width = 240, height = 150,
+       dpi = 300, units = "px", scale = 15)
 

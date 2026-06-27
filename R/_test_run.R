@@ -24,7 +24,8 @@ report_model(fit)
 # -------------------------------------------------------------------------
 
 ## Load data
-rr_data <- (readLines("data/rri-jabf.txt") |> as.numeric())/1000
+rr_data <- (readLines("data/rri-jabf.txt") |> as.numeric())
+
 rr_data <- (readLines("data/tmst/007.txt") |> as.numeric())
 rr_data <- (readLines("data/tmst/008.txt") |> as.numeric())
 

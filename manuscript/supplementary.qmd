@@ -113,3 +113,79 @@ Exact conjugate probability bounds are applied as additive algebraic penalties t
 $$
 \text{Cost} = -\mathcal{L}^* - \left[ (\alpha_s - 1)\ln(\kappa_s) - \beta_s \kappa_s \right] - \left[ (\alpha_p - 1)\ln(\kappa_p) - \beta_p \kappa_p \right] - \left[ -(a + 1)\ln(\lambda_R) - \frac{b}{\lambda_R} \right]
 $$
+
+# Goodness-of-Fit Diagnostic in Diffusion-Based Phase-Domain Architectures {#sec-diagnostics}
+
+The validation of point-process models using the Kolmogorov-Smirnov (KS) goodness-of-fit test relies heavily on the Time-Rescaling Theorem (TRT). However, it is mathematically necessary to distinguish between the stochastic assumptions of classical TRT (which assumes probabilistic event arrivals) and the SPARK framework (which models deterministic thresholds over stochastic diffusion paths). This section formally demonstrates that while the underlying generative noise distributions differ, the probability integral transform utilized in both frameworks ensures exact isomorphic equivalence for goodness-of-fit evaluation.
+
+## The Classical Poisson Arrival Formulation
+
+In classical point-process statistics, an event (heartbeat) is modeled as a stochastic arrival governed by a conditional intensity function $\lambda(t)$. Under this assumption, the generation of events follows an inhomogeneous Poisson process.
+
+The classical Time-Rescaling Theorem states that if the continuous intensity function $\lambda(t)$ is integrated over the exact observed inter-beat interval $[t_{k-1}, t_k]$, the resulting integrated intensity $\Lambda_k$ transforms the uneven temporal sequence into a homogeneous Poisson process with a unit rate:
+
+
+$$
+\Lambda_k = \int_{t_{k-1}}^{t_k} \lambda(t) dt
+$$
+
+
+Because the underlying generative noise of a unit-rate Poisson process is exponentially distributed, $\Lambda_k \sim \text{Exp}(1)$. The theorem executes a probability integral transform using the exponential cumulative distribution function (CDF) to map the sequence into a uniform distribution:
+
+
+$$
+u_k = 1 - \exp(-\Lambda_k) \sim \mathcal{U}(0,1)
+$$
+
+
+This $\mathcal{U}(0,1)$ sequence is then evaluated geometrically using the KS test.
+
+### The Phase-Domain Diffusion Formulation (SPARK)
+
+In contrast, the SPARK framework Abandons the Poisson arrival assumption. Cardiac pacing is modeled explicitly as a continuous-time Integrate-and-Fire (IF) diffusion process. Here, the event is triggered deterministically when the cellular membrane potential reaches a threshold of $1$. The stochasticity arises exclusively from the continuous Brownian motion (Wiener process, $dW_t$) of the biological environment during the interval.
+
+The governing stochastic differential equation over the observed interval is defined as:
+
+
+$$
+\int_{t_{k-1}}^{t_k} \lambda(t) dt + \int_{t_{k-1}}^{t_k} \sigma dW_t = 1
+$$
+
+In the inverted phase-domain filter, the deterministic drift component represents the predicted phase accumulation:
+
+
+$$
+\hat{\phi}_{k|k-1} = \int_{t_{k-1}}^{t_k} \lambda(t) dt
+$$
+
+By observing the exact threshold ($y_k = 1$), the filter innovation ($v_k$) strictly isolates the stochastic noise component:
+
+
+$$
+v_k = 1 - \hat{\phi}_{k|k-1} = \int_{t_{k-1}}^{t_k} \sigma dW_t
+$$
+
+Crucially, because the integral of a Wiener process yields a Gaussian distribution by definition, the isolated innovation $v_k$ does not follow an exponential distribution. Instead, it is strictly normal, characterized by a mean of zero and a calculable innovation variance $S_k$:
+
+
+$$
+v_k \sim \mathcal{N}(0, S_k)
+$$
+
+### Isomorphic Equivalence of the TRT Principle
+
+To execute the goodness-of-fit evaluation under the diffusion paradigm, the innovation is standardized to extract the pure standard normal generative noise:
+
+
+$$
+\epsilon_k = \frac{v_k}{\sqrt{S_k}} \sim \mathcal{N}(0,1)
+$$
+
+We then apply the exact same mathematical mechanism utilized in the classical TRT: the probability integral transform. However, because the generative noise of the SPARK diffusion model is standard normal rather than exponential, the transformation requires the standard normal CDF, $\Phi(\cdot)$:
+
+
+$$
+u_k = \Phi(\epsilon_k) \sim \mathcal{U}(0,1)
+$$
+
+While the SPARK architecture operates strictly under diffusion assumptions rather than Poisson assumptions, the fundamental mechanism of the Time-Rescaling Theorem—isolating the true generative noise and mapping it to a uniform distribution via its exact CDF—remains mathematically intact. Consequently, testing the sequence $u_k = \Phi(\epsilon_k)$ for uniformity via the Kolmogorov-Smirnov distance constitutes a theoretically rigorous and exact execution of the Time-Rescaling principle for first-passage time point-process models.

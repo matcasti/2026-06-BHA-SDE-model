@@ -68,13 +68,13 @@ generate_topology_figure <- function(fit_obj, protocol_name = "Protocol", n = NU
     geom_line(aes(y = Observed, color = "Observed RR"), linewidth = 0.5, alpha = 0.5) +
     geom_line(aes(y = Implied, color = "Filtered RR"), linewidth = 0.5) +
     scale_color_manual(values = c("Observed RR" = "gray60", "Filtered RR" = "darkred")) +
-    scale_x_continuous(expand = c(0,0), breaks = NULL) +
+    scale_x_continuous(expand = c(0,0)) +
     labs(title = "I. Phase-Domain Filtering",
-         subtitle = "Predictive Fit estimated from the model",
-         y = "RR Interval (s)", x = NULL) +
+         subtitle = "Observed (gray) and Filtered (red)",
+         y = "RR Interval (s)", x = "Time (minutes)") +
     theme_classic() +
     theme(legend.title = element_blank(),
-          legend.position = "bottom",
+          legend.position = "none",
           plot.title = element_text(face = "bold"))
 
   # ----------------------------------------------------------------------------
@@ -98,11 +98,11 @@ generate_topology_figure <- function(fit_obj, protocol_name = "Protocol", n = NU
     scale_fill_manual(values = color_branches) +
     scale_x_continuous(expand = c(0,0)) +
     labs(title = "II. Latent Autonomic Drivers",
-         subtitle = "Estimated from the model",
+         subtitle = "Sympathetic (red) and Parasympathetic (blue)",
          y = "Amplitude (Hz)", x = "Time (minutes)") +
     theme_classic() +
     theme(legend.title = element_blank(),
-          legend.position = "bottom",
+          legend.position = "none",
           plot.title = element_text(face = "bold"))
 
   # ----------------------------------------------------------------------------
@@ -144,7 +144,7 @@ generate_topology_figure <- function(fit_obj, protocol_name = "Protocol", n = NU
          x = expression("Parasympathetic Drive " * (X[p])),
          y = expression("Sympathetic Drive " * (X[s]))) +
     theme_classic() +
-    theme(legend.position = "bottom",
+    theme(legend.position = "none",
           plot.title = element_text(face = "bold"))
 
   # ----------------------------------------------------------------------------
@@ -181,10 +181,10 @@ generate_topology_figure <- function(fit_obj, protocol_name = "Protocol", n = NU
     scale_x_continuous(expand = c(0,0), breaks = c(0.04, 0.15, 0.40)) +
     scale_y_continuous(transform = "log10", labels = scales::label_log(), expand = c(0,0)) +
     labs(title = "III. Spectral Conservation",
-         subtitle = "Observed vs Filtered PSD",
+         subtitle = "Observed (gray) vs Filtered PSD (red)",
          x = "Frequency (Hz)", y = "Power (log scale)") +
     theme_classic() +
-    theme(legend.position = "bottom",
+    theme(legend.position = "none",
           legend.title = element_blank(),
           plot.title = element_text(face = "bold"))
 
@@ -192,11 +192,11 @@ generate_topology_figure <- function(fit_obj, protocol_name = "Protocol", n = NU
   # ASSEMBLE COMPOSITE (Patchwork)
   # ----------------------------------------------------------------------------
   # Left column: A, B, D stacked. Right column: C spanning the height.
-  composite <- ((pA / pB / pD) | pC) +
-    plot_layout(widths = c(1, 1.5)) +
+  composite <- (pA / pB / pD / pC) +
+    plot_layout(heights = c(2,2,1,3)) +
     plot_annotation(
       title = protocol_name,
-      theme = theme(plot.title = element_text(size = 16, face = "bold", hjust = 0.5))
+      theme = theme(plot.title = element_text(size = 16, face = "bold"))
     )
 
   return(composite)
@@ -215,9 +215,8 @@ fit_exercise <- raw_models[["007"]]
 fig_exercise <- generate_topology_figure(fit_exercise, protocol_name = "B. Exercise & Metabolic Recovery")
 
 ## Combining into side-by-side composite...
-fig_combined <- wrap_elements(fig_tilt) / wrap_elements(fig_exercise)
-
+fig_combined <- wrap_elements(fig_tilt) | wrap_elements(fig_exercise)
 
 ggsave(filename = "manuscript/figures/fig3_dynamic_topology_comparison.png",
        plot = fig_combined,
-       width = 220, height = 350, dpi = 300, scale = 13, units = "px")
+       width = 200, height = 300, dpi = 300, scale = 15, units = "px")
