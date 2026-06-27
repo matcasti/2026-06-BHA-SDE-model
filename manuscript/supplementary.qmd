@@ -80,7 +80,18 @@ $$
 P_{k|k} = (I - K_k H) P_{k|k-1} (I - K_k H)^T + K_k R_k K_k^T
 $$
 
-where $K_k$ is the Kalman gain, $H$ is the observation matrix, and $R_k$ is the total observation variance, defined as $R_k = \lambda_R \Delta t_k + H Q_{k} H^T$, where $Q_k$ is the propagated process covariance of the integrated autonomic states. This definition ensures the measurement model accounts for both the intrinsic threshold jitter and the stochastic uncertainty accumulated by the autonomic drift-diffusion process over the interval. This algebraic structure guarantees that the covariance matrix $P_{k|k}$ remains symmetric and positive semi-definite regardless of the numerical magnitude of the measurement updates. Explicit structural symmetry is subsequently enforced by averaging the matrix with its own transpose. Following this update, the sinoatrial node repolarization is modeled by setting the third and fourth dimensions of the state vectors and the covariance matrix exactly to zero.
+where $K_k$ is the Kalman gain, $H$ is the observation matrix, and $R_k$ is the total observation variance, defined as $R_k = \lambda_R \Delta t_k + H Q_{k} H^T$, where $Q_k$ is the propagated process covariance of the integrated autonomic states.
+
+### Biophysical partitioning of system variance
+
+Within this structural formulation, it is mathematically necessary to distinguish the specific physical sources of system variance. The continuous process covariance matrix ($Q_k$) explicitly captures the integrated Brownian perturbations of the ionic currents accumulating throughout the depolarization interval. In contrast, the discrete observation noise variance ($R_k$) strictly absorbs instantaneous stochasticity at the absorbing boundary. Specifically, $R_k$ quantifies the biophysical jitter of the cellular depolarization threshold itself, as well as the deterministic quantization error inherent to the finite sampling frequency of the electrocardiogram hardware.
+
+This algebraic structure guarantees that the covariance matrix $P_{k|k}$ remains symmetric and positive semi-definite regardless of the numerical magnitude of the measurement updates.
+Explicit structural symmetry is subsequently enforced by averaging the matrix with its own transpose.
+
+### Hybrid continuous-discrete jump system and phase repolarization
+
+Crucially, the SPARK estimation architecture operates as a hybrid continuous-discrete jump system. Following the measurement update at each heartbeat, the biological repolarization of the sinoatrial node is geometrically enforced by instantaneously resetting the integrated phase states ($I_p, I_s$) and their corresponding dimensions within the posterior covariance matrix ($P_{k|k}$) to exactly zero. Conversely, the latent autonomic states ($x_p, x_s$) and their covariances are strictly preserved across the boundary. This asymmetric reset mechanism ensures that the continuous, trans-beat memory of the autonomic nervous system is maintained while preventing artificial, non-physiological phase accumulation across sequential intervals.
 
 At the conclusion of the filtering sequence of length $N$, the optimal baseline intrinsic drift $\hat{\nu}_0$ and the global system volatility $\hat{\sigma}_{sys}^2$ are computed using the stored arrays of the stochastic innovations $v^{(0)}$, the deterministic responses $v^{(\nu)}$, and the sequential innovation variances $S$:
 
