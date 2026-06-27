@@ -4,7 +4,7 @@ title: "Latent Stochastic Differential Equation Phase-Domain State-Space Framewo
 
 # Asymptotic convergence of the phase-domain mapping {#sec-phase-mapping}
 
-The structural coordinate inversion introduced in the main text simplifies the estimation architecture by evaluating the accumulated phase at a deterministic temporal snapshot $\Delta t_k$, effectively ignoring the continuous path-survival condition required by a strict first-passage time (FPT) formulation. While this mapping is conceptually framed as an inversion, we demonstrate here that under the physiological constraints of the healthy sinoatrial node, this formulation converges asymptotically to the exact boundary-crossing probability, making the analytical discrepancy functionally zero.
+The phase-domain coordinate mapping simplifies the estimation architecture by evaluating the accumulated phase over a deterministic temporal window $\Delta t_k$, relaxing the continuous path-survival condition required by a strict first-passage time (FPT) formulation. We demonstrate here that under the physiological constraints of the sinoatrial node, this terminal-threshold formulation converges asymptotically to the exact boundary-crossing probability, rendering the analytical discrepancy negligible
 
 To formalize this, consider the complete, closed-form cumulative distribution function (CDF) for the first-passage time $\tau$ of a one-dimensional drift-diffusion process with constant net drift $\nu$, volatility $\sigma$, and an absorbing boundary at $a = 1.0$:
 
@@ -14,7 +14,7 @@ $$
 
 where $\Phi(\cdot)$ denotes the standard normal cumulative distribution function. The total probability density is governed by two mathematically distinct components.
 
-First, the phase-snapshot term $\Phi\left( \frac{\nu t - 1.0}{\sigma \sqrt{t}} \right)$, which represents the unconstrained probability that the continuous process is located above the threshold at the exact temporal slice $t$. This term maps directly to the linear Gaussian observation equation utilized in our phase-domain inversion. Second, the boundary-reflection correction $\exp\left( \frac{2\nu}{\sigma^2} \right) \Phi\left( \frac{-\nu t - 1.0}{\sigma \sqrt{t}} \right)$, which serves as a mathematical penalty accounting exclusively for the sub-population of sample paths that crossed the absorbing boundary prior to time $t$ but subsequently diffused back below the threshold.
+The total probability density is governed by two mathematically distinct components derived via the reflection principle of Brownian motion. First, the primary drift-diffusion term $\Phi\left( \frac{\nu t - 1.0}{\sigma \sqrt{t}} \right)$, which represents the unconstrained probability that the continuous process is located above the threshold at the exact temporal slice $t$. This term maps directly to the linear Gaussian observation equation utilized in our phase-domain inversion. Second, the boundary reflection term $\exp\left( \frac{2\nu}{\sigma^2} \right) \Phi\left( \frac{-\nu t - 1.0}{\sigma \sqrt{t}} \right)$, which serves as a mathematical penalty accounting exclusively for the sub-population of sample paths that crossed the absorbing boundary prior to time $t$ but subsequently diffused back below the threshold.
 
 The mathematical validity of omitting the boundary-reflection correction depends entirely on the biological regime of the physical system. In cardiac electrophysiology, the intrinsic depolarization of pacemaker cells is dictated by a massive, highly directed ionic current relative to microscopic thermodynamic perturbations. Consequently, the sinoatrial node operates within a high-drift, low-noise regime, characterized by a large dimensionless drift-to-diffusion ratio ($\mathrm{Pe} = \frac{\nu}{\sigma} \gg 1$, where $\sigma$ is the diffusion coefficient at unit threshold).
 
@@ -38,7 +38,7 @@ By establishing that the probability of a path crossing the depolarization thres
 
 # Estimation algorithm {#sec-estimation-algorithm}
 
-This section details the specific algorithmic execution and numerical safeguards required to implement the augmented phase-domain state-space model. The computational architecture is divided into the continuous wavelet extraction algorithm, the numerically stable evaluation of the continuous-time transitions, the geometric enforcement of the Kalman covariance updates, and the structural assembly of the unconstrained optimization space.
+This section details the specific algorithmic execution and numerical safeguards required to implement the augmented phase-domain state-space model. The computational architecture is divided into the continuous wavelet extraction algorithm, the numerically stable evaluation of the continuous-time transitions, the geometric enforcement of the Kalman covariance updates, and the structural assembly of the unconstrained optimization space. The continuous-discrete filtering architecture evaluates the augmented state vector $\tilde{X}(t) = [x_p(t), x_s(t), I_p(t), I_s(t)]^T$. For each discrete observation interval $\Delta t_k$, the recursive estimation proceeds as follows:
 
 ## Deterministic wavelet anchoring and data-driven priors
 
@@ -142,7 +142,7 @@ This $\mathcal{U}(0,1)$ sequence is then evaluated geometrically using the KS te
 
 ### The Phase-Domain Diffusion Formulation (SPARK)
 
-In contrast, the SPARK framework Abandons the Poisson arrival assumption. Cardiac pacing is modeled explicitly as a continuous-time Integrate-and-Fire (IF) diffusion process. Here, the event is triggered deterministically when the cellular membrane potential reaches a threshold of $1$. The stochasticity arises exclusively from the continuous Brownian motion (Wiener process, $dW_t$) of the biological environment during the interval.
+In contrast, the SPARK framework abandons the Poisson arrival assumption. Cardiac pacing is modeled explicitly as a continuous-time Integrate-and-Fire (IF) diffusion process. Here, the event is triggered deterministically when the cellular membrane potential reaches a threshold of $1$. The stochasticity arises exclusively from the continuous Brownian motion (Wiener process, $dW_t$) of the biological environment during the interval.
 
 The governing stochastic differential equation over the observed interval is defined as:
 
@@ -188,4 +188,4 @@ $$
 u_k = \Phi(\epsilon_k) \sim \mathcal{U}(0,1)
 $$
 
-While the SPARK architecture operates strictly under diffusion assumptions rather than Poisson assumptions, the fundamental mechanism of the time-rescaling theorem, isolating the true generative noise and mapping it to a uniform distribution via its exact CDF, remains mathematically intact. Consequently, testing the sequence $u_k = \Phi(\epsilon_k)$ for uniformity via the Kolmogorov-Smirnov distance constitutes a theoretically rigorous and exact execution of the time-rescaling principle for first-passage time point-process models.
+Although the SPARK architecture operates under diffusion rather than Poisson assumptions, the fundamental mechanism of the time-rescaling theorem, isolating the true generative noise and mapping it to a uniform distribution via its exact probability integral transform, remains mathematically exact. Consequently, testing the sequence $u_k = \Phi(\epsilon_k)$ for uniformity via the Kolmogorov-Smirnov distance constitutes a theoretically rigorous and exact execution of the time-rescaling principle for first-passage time point-process models.
