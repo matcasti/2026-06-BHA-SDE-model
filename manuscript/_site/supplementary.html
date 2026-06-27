@@ -9,7 +9,7 @@
 <meta name="author" content="Matías Castillo-Aguilar">
 <meta name="author" content="Noah Beelders">
 <meta name="author" content="Cristian Núñez-Espinosa">
-<meta name="dcterms.date" content="2026-06-25">
+<meta name="dcterms.date" content="2026-06-27">
 
 <title>Latent Stochastic Differential Equation Phase-Domain State-Space Framework for Cardiac Autonomic Neuroscience</title>
 <style>
@@ -4190,7 +4190,7 @@ window.Quarto = {
                 <div>
             <div class="quarto-title-meta-heading">Published</div>
             <div class="quarto-title-meta-contents">
-              <p class="date">June 25, 2026</p>
+              <p class="date">June 27, 2026</p>
             </div>
           </div>
           
@@ -4220,6 +4220,14 @@ window.Quarto = {
   <li><a href="#evaluation-of-the-continuous-time-transitions" id="toc-evaluation-of-the-continuous-time-transitions" class="nav-link" data-scroll-target="#evaluation-of-the-continuous-time-transitions"><span class="header-section-number">2.2</span> Evaluation of the continuous-time transitions</a></li>
   <li><a href="#kalman-covariance-updates" id="toc-kalman-covariance-updates" class="nav-link" data-scroll-target="#kalman-covariance-updates"><span class="header-section-number">2.3</span> Kalman covariance updates</a></li>
   <li><a href="#unconstrained-optimization-space" id="toc-unconstrained-optimization-space" class="nav-link" data-scroll-target="#unconstrained-optimization-space"><span class="header-section-number">2.4</span> Unconstrained optimization space</a></li>
+  </ul></li>
+  <li><a href="#sec-diagnostics" id="toc-sec-diagnostics" class="nav-link" data-scroll-target="#sec-diagnostics"><span class="header-section-number">3</span> Goodness-of-Fit Diagnostic in Diffusion-Based Phase-Domain Architectures</a>
+  <ul class="collapse">
+  <li><a href="#the-classical-poisson-arrival-formulation" id="toc-the-classical-poisson-arrival-formulation" class="nav-link" data-scroll-target="#the-classical-poisson-arrival-formulation"><span class="header-section-number">3.1</span> The Classical Poisson Arrival Formulation</a>
+  <ul class="collapse">
+  <li><a href="#the-phase-domain-diffusion-formulation-spark" id="toc-the-phase-domain-diffusion-formulation-spark" class="nav-link" data-scroll-target="#the-phase-domain-diffusion-formulation-spark"><span class="header-section-number">3.1.1</span> The Phase-Domain Diffusion Formulation (SPARK)</a></li>
+  <li><a href="#isomorphic-equivalence-of-the-trt-principle" id="toc-isomorphic-equivalence-of-the-trt-principle" class="nav-link" data-scroll-target="#isomorphic-equivalence-of-the-trt-principle"><span class="header-section-number">3.1.2</span> Isomorphic Equivalence of the TRT Principle</a></li>
+  </ul></li>
   </ul></li>
   </ul>
 </nav>
@@ -4312,8 +4320,57 @@ P_{k|k} = (I - K_k H) P_{k|k-1} (I - K_k H)^T + K_k R_k K_k^T
 <p><span class="math display">\[
 \text{Cost} = -\mathcal{L}^* - \left[ (\alpha_s - 1)\ln(\kappa_s) - \beta_s \kappa_s \right] - \left[ (\alpha_p - 1)\ln(\kappa_p) - \beta_p \kappa_p \right] - \left[ -(a + 1)\ln(\lambda_R) - \frac{b}{\lambda_R} \right]
 \]</span></p>
+</section>
+</section>
+<section id="sec-diagnostics" class="level1" data-number="3">
+<h1 data-number="3"><span class="header-section-number">3</span> Goodness-of-Fit Diagnostic in Diffusion-Based Phase-Domain Architectures</h1>
+<p>The validation of point-process models using the Kolmogorov-Smirnov (KS) goodness-of-fit test relies heavily on the Time-Rescaling Theorem (TRT). However, it is mathematically necessary to distinguish between the stochastic assumptions of classical TRT (which assumes probabilistic event arrivals) and the SPARK framework (which models deterministic thresholds over stochastic diffusion paths). This section formally demonstrates that while the underlying generative noise distributions differ, the probability integral transform utilized in both frameworks ensures exact isomorphic equivalence for goodness-of-fit evaluation.</p>
+<section id="the-classical-poisson-arrival-formulation" class="level2" data-number="3.1">
+<h2 data-number="3.1" class="anchored" data-anchor-id="the-classical-poisson-arrival-formulation"><span class="header-section-number">3.1</span> The Classical Poisson Arrival Formulation</h2>
+<p>In classical point-process statistics, an event (heartbeat) is modeled as a stochastic arrival governed by a conditional intensity function <span class="math inline">\(\lambda(t)\)</span>. Under this assumption, the generation of events follows an inhomogeneous Poisson process.</p>
+<p>The classical Time-Rescaling Theorem states that if the continuous intensity function <span class="math inline">\(\lambda(t)\)</span> is integrated over the exact observed inter-beat interval <span class="math inline">\([t_{k-1}, t_k]\)</span>, the resulting integrated intensity <span class="math inline">\(\Lambda_k\)</span> transforms the uneven temporal sequence into a homogeneous Poisson process with a unit rate:</p>
+<p><span class="math display">\[
+\Lambda_k = \int_{t_{k-1}}^{t_k} \lambda(t) dt
+\]</span></p>
+<p>Because the underlying generative noise of a unit-rate Poisson process is exponentially distributed, <span class="math inline">\(\Lambda_k \sim \text{Exp}(1)\)</span>. The theorem executes a probability integral transform using the exponential cumulative distribution function (CDF) to map the sequence into a uniform distribution:</p>
+<p><span class="math display">\[
+u_k = 1 - \exp(-\Lambda_k) \sim \mathcal{U}(0,1)
+\]</span></p>
+<p>This <span class="math inline">\(\mathcal{U}(0,1)\)</span> sequence is then evaluated geometrically using the KS test.</p>
+<section id="the-phase-domain-diffusion-formulation-spark" class="level3" data-number="3.1.1">
+<h3 data-number="3.1.1" class="anchored" data-anchor-id="the-phase-domain-diffusion-formulation-spark"><span class="header-section-number">3.1.1</span> The Phase-Domain Diffusion Formulation (SPARK)</h3>
+<p>In contrast, the SPARK framework Abandons the Poisson arrival assumption. Cardiac pacing is modeled explicitly as a continuous-time Integrate-and-Fire (IF) diffusion process. Here, the event is triggered deterministically when the cellular membrane potential reaches a threshold of <span class="math inline">\(1\)</span>. The stochasticity arises exclusively from the continuous Brownian motion (Wiener process, <span class="math inline">\(dW_t\)</span>) of the biological environment during the interval.</p>
+<p>The governing stochastic differential equation over the observed interval is defined as:</p>
+<p><span class="math display">\[
+\int_{t_{k-1}}^{t_k} \lambda(t) dt + \int_{t_{k-1}}^{t_k} \sigma dW_t = 1
+\]</span></p>
+<p>In the inverted phase-domain filter, the deterministic drift component represents the predicted phase accumulation:</p>
+<p><span class="math display">\[
+\hat{\phi}_{k|k-1} = \int_{t_{k-1}}^{t_k} \lambda(t) dt
+\]</span></p>
+<p>By observing the exact threshold (<span class="math inline">\(y_k = 1\)</span>), the filter innovation (<span class="math inline">\(v_k\)</span>) strictly isolates the stochastic noise component:</p>
+<p><span class="math display">\[
+v_k = 1 - \hat{\phi}_{k|k-1} = \int_{t_{k-1}}^{t_k} \sigma dW_t
+\]</span></p>
+<p>Crucially, because the integral of a Wiener process yields a Gaussian distribution by definition, the isolated innovation <span class="math inline">\(v_k\)</span> does not follow an exponential distribution. Instead, it is strictly normal, characterized by a mean of zero and a calculable innovation variance <span class="math inline">\(S_k\)</span>:</p>
+<p><span class="math display">\[
+v_k \sim \mathcal{N}(0, S_k)
+\]</span></p>
+</section>
+<section id="isomorphic-equivalence-of-the-trt-principle" class="level3" data-number="3.1.2">
+<h3 data-number="3.1.2" class="anchored" data-anchor-id="isomorphic-equivalence-of-the-trt-principle"><span class="header-section-number">3.1.2</span> Isomorphic Equivalence of the TRT Principle</h3>
+<p>To execute the goodness-of-fit evaluation under the diffusion paradigm, the innovation is standardized to extract the pure standard normal generative noise:</p>
+<p><span class="math display">\[
+\epsilon_k = \frac{v_k}{\sqrt{S_k}} \sim \mathcal{N}(0,1)
+\]</span></p>
+<p>We then apply the exact same mathematical mechanism utilized in the classical TRT: the probability integral transform. However, because the generative noise of the SPARK diffusion model is standard normal rather than exponential, the transformation requires the standard normal CDF, <span class="math inline">\(\Phi(\cdot)\)</span>:</p>
+<p><span class="math display">\[
+u_k = \Phi(\epsilon_k) \sim \mathcal{U}(0,1)
+\]</span></p>
+<p>While the SPARK architecture operates strictly under diffusion assumptions rather than Poisson assumptions, the fundamental mechanism of the Time-Rescaling Theorem—isolating the true generative noise and mapping it to a uniform distribution via its exact CDF—remains mathematically intact. Consequently, testing the sequence <span class="math inline">\(u_k = \Phi(\epsilon_k)\)</span> for uniformity via the Kolmogorov-Smirnov distance constitutes a theoretically rigorous and exact execution of the Time-Rescaling principle for first-passage time point-process models.</p>
 
 
+</section>
 </section>
 </section>
 
