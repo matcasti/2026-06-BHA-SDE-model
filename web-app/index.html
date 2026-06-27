@@ -55,7 +55,7 @@ body{font-family:var(--font-ui);background:var(--bg);color:var(--tx1);min-height
 .workspace{display:flex;padding-top:var(--th);min-height:100vh}
 
 /* ── SIDEBAR ── */
-.sidebar{width:var(--sw);flex-shrink:0;background:var(--s0);border-right:1px solid var(--bd);height:calc(100vh - var(--th));position:sticky;top:var(--th);overflow-y:auto;padding:0 0 40px;scrollbar-width:thin;scrollbar-color:var(--bd2) transparent}
+.sidebar{width:clamp(186px,21vw,272px);flex-shrink:0;background:var(--s0);border-right:1px solid var(--bd);height:calc(100vh - var(--th));position:sticky;top:var(--th);overflow-y:auto;padding:0 0 40px;scrollbar-width:thin;scrollbar-color:var(--bd2) transparent}
 .sidebar::-webkit-scrollbar{width:3px}.sidebar::-webkit-scrollbar-track{background:transparent}.sidebar::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:3px}
 
 /* ── PANEL ── */
@@ -177,15 +177,40 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
 .dchip .dk{color:var(--tx2)}.dchip .dv{font-family:var(--font-mono);color:var(--tx1);font-weight:600}
 .dchip.pass .dv{color:var(--grn)}.dchip.warn .dv{color:var(--amb)}.dchip.fail .dv{color:var(--red)}
 
-/* ── RESPONSIVE ── */
-@media(max-width:860px){:root{--sw:230px}}
+/* ── STRUCTURAL RESPONSIVENESS FIXES ── */
+/* Workspace never causes horizontal scroll */
+.workspace{overflow-x:hidden}
+/* Chart cards must not overflow their grid cell */
+.cc{min-width:0;overflow:hidden}
+/* Canvases never exceed their container width */
+canvas{display:block;max-width:100%}
+
+/* ── RESPONSIVE BREAKPOINTS ── */
+
+/* 2-col → 1-col when each column would be < ~280px.
+   With sidebar clamp(186,21vw,272) + 40px padding, this fires at ≈820px. */
+@media(max-width:820px){
+  .g2{grid-template-columns:1fr}
+}
+
+/* Below 680px stack sidebar above content */
 @media(max-width:680px){
   .workspace{flex-direction:column}
-  .sidebar{width:100%;height:auto;position:static;border-right:none;border-bottom:1px solid var(--bd)}
+  .sidebar{width:100%;height:auto;position:static;
+           border-right:none;border-bottom:1px solid var(--bd);max-height:none}
   .content{padding:14px 12px 40px}
-  .g2{grid-template-columns:1fr}
   .spark-title{display:none}
 }
+
+/* Portrait phones */
+@media(max-width:420px){
+  .content{padding:10px 8px 32px}
+  .topbar{padding:0 10px;gap:8px}
+  .metric-grid{grid-template-columns:repeat(auto-fill,minmax(90px,1fr))}
+  .tab-btn{padding:6px 9px;font-size:.7rem}
+}
+
+/* ── SCROLLBARS ── */
 :root{scrollbar-width:thin;scrollbar-color:var(--bd2) transparent}
 ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:3px}
 
@@ -227,7 +252,7 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
         <input type="file" id="file-in" accept=".csv,.txt,.dat">
         <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
         <div class="dz-main">Drop file or click to upload</div>
-        <div class="dz-hint">.csv &middot; .txt &middot; .dat &nbsp;|&nbsp; values in seconds</div>
+        <div class="dz-hint">.csv &middot; .txt &middot; .dat &nbsp;|&nbsp; seconds or ms — auto-detected</div>
       </label>
       <div class="data-chip" id="data-chip"><span class="chip-dot"></span><span id="data-chip-text">No data loaded</span></div>
       <button class="btn btn-ghost" id="btn-example">
@@ -372,17 +397,27 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
             <div style="flex:1;position:relative;min-height:260px"><canvas id="chart-phase"></canvas></div>
           </div>
           <div class="cc">
-            <div class="cc-lbl">Autonomic Log Balance Index &amp; Total Drive Magnitude</div>
+            <div class="cc-lbl">Autonomic Log Balance Index</div>
             <canvas id="chart-abi" height="260"></canvas>
           </div>
         </div>
         <div class="g2" style="margin-top:12px">
           <div class="cc">
-            <div class="cc-lbl">Joint Kalman Entropy — Latent State Uncertainty over Time</div>
-            <canvas id="chart-entropy" height="160"></canvas>
+            <div class="cc-lbl">Total Autonomic Drive Magnitude ‖x‖</div>
+            <canvas id="chart-totaldrive" height="160"></canvas>
           </div>
           <div class="cc">
-            <div class="cc-lbl">Phase Speed &amp; Cumulative Hysteresis Area</div>
+            <div class="cc-lbl">Entropy Production Rate ṡ(t) — Instantaneous Allostatic Cost</div>
+            <canvas id="chart-epr" height="160"></canvas>
+          </div>
+        </div>
+        <div class="g2" style="margin-top:12px">
+          <div class="cc">
+            <div class="cc-lbl">Cumulative Allostatic Load ∫ṡ dt — Time-Integrated Entropy Production</div>
+            <canvas id="chart-alloload" height="160"></canvas>
+          </div>
+          <div class="cc">
+            <div class="cc-lbl">Phase Space Hysteresis — Broken Time-Reversal Symmetry ∮ X_P dX_S</div>
             <canvas id="chart-hysteresis" height="160"></canvas>
           </div>
         </div>
@@ -926,7 +961,7 @@ function ksTest(z,gate){
 
 // Derived metrics from latent states
 function derivedMetrics(fit){
-  const{Xp,Xs,XpV,XsV,irr,dy,gate}=fit;
+  const{Xp,Xs,XpV,XsV,irr,dy,gate,params}=fit;
   const N=irr.length, e=1e-8;
 
   // ── Log-ratio autonomic balance (unconstrained)
@@ -951,22 +986,24 @@ function derivedMetrics(fit){
   const rmse=1000*Math.sqrt(rms2/N), mape=100*map2/N;
   const nGated=Array.from(gate).filter(g=>g>1.5).length;
 
-  // ── Joint Kalman entropy H(t) = ½·(ln XpV + ln XsV)
-  // Measures how uncertain the Kalman filter is about the system's location in phase space
-  const entropy=(XpV&&XsV)
-    ? XpV.map((vp,i)=>0.5*(Math.log(Math.max(vp,1e-20))+Math.log(Math.max(XsV[i],1e-20))))
-    : new Array(N).fill(0);
-  const mEntropy=entropy.reduce((a,b)=>a+b,0)/N;
+  // ── Stochastic Entropy Production Rate — allostatic load proxy
+  // For OU process: ṡ(t) = κ_P·(X_P²/V_P_ss − 1) + κ_S·(X_S²/V_S_ss − 1)
+  // Zero at steady-state mean; positive = system working above thermodynamic baseline
+  const V_P_ss=params.lp*params.sig2;   // steady-state parasympathetic variance Λ_P·σ²sys
+  const V_S_ss=params.sig2;              // steady-state sympathetic variance σ²sys
+  const epr=Xp.map((xp,i)=>
+    params.kp*(xp*xp/V_P_ss - 1) + params.ks*(Xs[i]*Xs[i]/V_S_ss - 1)
+  );
+  const mEPR=epr.reduce((a,b)=>a+b,0)/N;
 
-  // ── Phase space dynamics
-  // Instantaneous speed ‖Δx‖ between consecutive beats
-  const phaseSpeed=[0];
-  for(let i=1;i<N;i++)
-    phaseSpeed.push(Math.sqrt((Xp[i]-Xp[i-1])**2+(Xs[i]-Xs[i-1])**2));
-  const phasePath=phaseSpeed.reduce((a,b)=>a+b,0); // total path length
+  // ── Cumulative allostatic load: time-integrated EPR  ∫ṡ dt
+  // Positive accumulation = sustained non-equilibrium effort; flat regions = recovery
+  const alloLoad=[0];
+  let cumEP=0;
+  for(let i=0;i<N-1;i++){cumEP+=epr[i]*dy[i];alloLoad.push(cumEP);}
+  const totalAlloLoad=cumEP;
 
-  // Cumulative signed area via shoelace — quantifies hysteresis
-  // (net area swept by trajectory in phase space)
+  // ── Phase space hysteresis: shoelace signed area (broken time-reversal symmetry)
   const runningArea=[0];
   let cumArea=0;
   for(let i=0;i<N-1;i++){
@@ -977,7 +1014,7 @@ function derivedMetrics(fit){
 
   return{abi,tad,rmssdFlt,rmssdObs,sdnnFlt,mABI,abiStd,
     nGated,pctGated:100*nGated/N,rmse,mape,
-    entropy,mEntropy,phaseSpeed,phasePath,phaseArea,runningArea};
+    epr,mEPR,alloLoad,totalAlloLoad,phaseArea,runningArea};
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -989,7 +1026,8 @@ function destroyChart(id){if(_ch[id]){_ch[id].destroy();delete _ch[id];}}
 
 function tc(){
   return{tx2:css('--tx2'),bd:css('--bd'),s1:css('--s1'),
-         acc:css('--acc'),teal:css('--teal'),red:css('--red'),grn:css('--grn'),amb:css('--amb')}
+         acc:css('--acc'),teal:css('--teal'),red:css('--red'),
+         grn:css('--grn'),amb:css('--amb'),pur:css('--pur')}
 }
 
 function chartDefaults(){
@@ -1147,32 +1185,47 @@ function buildPhaseChart(Xp,Xs,params){
   });
 }
 
-// ── Autonomic Balance Index & Total Drive (dual axis) ──
-function buildABIChart(time,abi,tad){
+// ── Autonomic Log Balance Index (single axis) ──
+function buildABIChart(time,abi){
   destroyChart('abi'); const c=tc();
   const lab=time.map(t=>t.toFixed(1));
-  const zeroLine=abi.map(()=>0);
+  const zero=abi.map(()=>0);
   _ch.abi=new Chart(document.getElementById('chart-abi'),{
     type:'line',
     data:{labels:lab,datasets:[
-      {type:'line',label:'',data:zeroLine,borderColor:c.tx2+'28',backgroundColor:'transparent',
-       pointRadius:0,borderWidth:1,borderDash:[3,5],yAxisID:'y1',order:3},
-      {label:'Total drive ‖x‖',data:tad,borderColor:c.amb+'88',backgroundColor:c.amb+'12',
-       fill:true,pointRadius:0,borderWidth:1.2,yAxisID:'y2',order:2},
-      {label:'Balance (vagal−symp)',data:abi,borderColor:c.acc,backgroundColor:'transparent',
-       pointRadius:0,borderWidth:1.8,yAxisID:'y1',order:1}
+      {label:'',data:zero,borderColor:c.tx2+'30',backgroundColor:'transparent',
+       pointRadius:0,borderWidth:1,borderDash:[4,4]},
+      {label:'Log balance (vagal / symp)',data:abi,
+       borderColor:c.acc,backgroundColor:c.acc+'18',
+       fill:true,pointRadius:0,borderWidth:1.8}
     ]},
-    options:{
-      responsive:true,maintainAspectRatio:true,animation:false,
+    options:baseOpts({
       plugins:{legend:{labels:{filter:i=>i.datasetIndex>=1,color:c.tx2,boxWidth:10,padding:9}}},
       scales:{
         x:{title:{display:true,text:'Time (s)',color:c.tx2},ticks:{maxTicksLimit:8,color:c.tx2},grid:{color:c.bd+'44'}},
-        y1:{type:'linear',position:'left',
-            title:{display:true,text:'Log balance (vagal/symp)',color:c.acc},
-            ticks:{color:c.tx2},grid:{color:c.bd+'44'}},
-        y2:{type:'linear',position:'right',title:{display:true,text:'‖x‖ (Hz)',color:c.amb},ticks:{color:c.tx2},grid:{display:false}}
+        y:{title:{display:true,text:'ln(|X_P| / |X_S|)',color:c.acc},ticks:{color:c.tx2},grid:{color:c.bd+'44'}}
       }
-    }
+    })
+  });
+}
+
+// ── Total Autonomic Drive ‖x‖ ──
+function buildTotalDriveChart(time,tad){
+  destroyChart('totaldrive'); const c=tc();
+  const lab=time.map(t=>t.toFixed(1));
+  _ch.totaldrive=new Chart(document.getElementById('chart-totaldrive'),{
+    type:'line',
+    data:{labels:lab,datasets:[{
+      label:'Total drive ‖x‖',data:tad,
+      borderColor:c.amb,backgroundColor:c.amb+'18',
+      fill:true,pointRadius:0,borderWidth:1.8
+    }]},
+    options:baseOpts({
+      scales:{
+        x:{title:{display:true,text:'Time (s)',color:c.tx2},ticks:{maxTicksLimit:8,color:c.tx2},grid:{color:c.bd+'44'}},
+        y:{title:{display:true,text:'‖x‖ (Hz)',color:c.amb},min:0,ticks:{color:c.tx2},grid:{color:c.bd+'44'}}
+      }
+    })
   });
 }
 
@@ -1319,54 +1372,74 @@ function buildKSChart(ksRes){
   });
 }
 
-// ── Joint Kalman Entropy over time ──
-function buildEntropyChart(time,entropy){
-  destroyChart('entropy'); const c=tc();
+// ── Instantaneous Entropy Production Rate ṡ(t) ──
+function buildEPRChart(time,epr){
+  destroyChart('epr'); const c=tc();
   const lab=time.map(t=>t.toFixed(1));
-  _ch.entropy=new Chart(document.getElementById('chart-entropy'),{
+  const zero=epr.map(()=>0);
+  // Positive = above-baseline thermodynamic load; negative = recovery phase
+  const posData=epr.map(v=>v>0?v:0);
+  const negData=epr.map(v=>v<0?v:0);
+  _ch.epr=new Chart(document.getElementById('chart-epr'),{
     type:'line',
-    data:{labels:lab,datasets:[{
-      label:'H(t) = ½(ln σ²_P + ln σ²_S)',
-      data:entropy,
-      borderColor:c.pur,backgroundColor:c.pur+'1a',
-      fill:true,pointRadius:0,borderWidth:1.6
-    }]},
+    data:{labels:lab,datasets:[
+      {label:'',data:zero,borderColor:c.tx2+'30',backgroundColor:'transparent',
+       pointRadius:0,borderWidth:1,borderDash:[4,4]},
+      {label:'ṡ > 0  (load)',data:posData,
+       borderColor:'transparent',backgroundColor:c.red+'28',fill:true,pointRadius:0,borderWidth:0},
+      {label:'ṡ < 0  (recovery)',data:negData,
+       borderColor:'transparent',backgroundColor:c.teal+'28',fill:true,pointRadius:0,borderWidth:0},
+      {label:'Entropy production rate ṡ(t)',data:epr,
+       borderColor:c.pur,backgroundColor:'transparent',
+       pointRadius:0,borderWidth:1.7}
+    ]},
     options:baseOpts({
+      plugins:{legend:{labels:{filter:i=>i.datasetIndex>=1,color:c.tx2,boxWidth:10,padding:9}}},
       scales:{
         x:{title:{display:true,text:'Time (s)',color:c.tx2},ticks:{maxTicksLimit:8,color:c.tx2},grid:{color:c.bd+'44'}},
-        y:{title:{display:true,text:'Entropy (nats)',color:c.tx2},ticks:{color:c.tx2},grid:{color:c.bd+'44'}}
+        y:{title:{display:true,text:'ṡ(t)  (s⁻¹)',color:c.pur},ticks:{color:c.tx2},grid:{color:c.bd+'44'}}
       }
     })
   });
 }
 
-// ── Phase Speed & Cumulative Hysteresis Area ──
-function buildHysteresisChart(time,runningArea,phaseSpeed){
+// ── Cumulative Allostatic Load ∫ṡ dt ──
+function buildAlloLoadChart(time,alloLoad){
+  destroyChart('alloload'); const c=tc();
+  const lab=time.map(t=>t.toFixed(1));
+  _ch.alloload=new Chart(document.getElementById('chart-alloload'),{
+    type:'line',
+    data:{labels:lab,datasets:[{
+      label:'Cumulative allostatic load  ∫ṡ dt',data:alloLoad,
+      borderColor:c.red,backgroundColor:c.red+'12',
+      fill:true,pointRadius:0,borderWidth:1.8
+    }]},
+    options:baseOpts({
+      scales:{
+        x:{title:{display:true,text:'Time (s)',color:c.tx2},ticks:{maxTicksLimit:8,color:c.tx2},grid:{color:c.bd+'44'}},
+        y:{title:{display:true,text:'Load (dimensionless)',color:c.red},ticks:{color:c.tx2},grid:{color:c.bd+'44'}}
+      }
+    })
+  });
+}
+
+// ── Hysteresis — cumulative signed phase-space area ──
+function buildHysteresisChart(time,runningArea){
   destroyChart('hysteresis'); const c=tc();
   const lab=time.map(t=>t.toFixed(1));
   _ch.hysteresis=new Chart(document.getElementById('chart-hysteresis'),{
     type:'line',
-    data:{labels:lab,datasets:[
-      {label:'Phase speed ‖Δx‖',data:phaseSpeed,
-       borderColor:c.grn,backgroundColor:'transparent',
-       pointRadius:0,borderWidth:1.3,yAxisID:'y1'},
-      {label:'Cumul. area (hysteresis)',data:runningArea,
-       borderColor:c.amb,backgroundColor:c.amb+'12',
-       fill:true,pointRadius:0,borderWidth:1.6,yAxisID:'y2'}
-    ]},
-    options:{
-      responsive:true,maintainAspectRatio:true,animation:false,
-      plugins:{legend:{labels:{color:c.tx2,boxWidth:10,padding:9}}},
+    data:{labels:lab,datasets:[{
+      label:'Signed hysteresis area  ∮ X_P dX_S',data:runningArea,
+      borderColor:c.grn,backgroundColor:c.grn+'14',
+      fill:true,pointRadius:0,borderWidth:1.8
+    }]},
+    options:baseOpts({
       scales:{
         x:{title:{display:true,text:'Time (s)',color:c.tx2},ticks:{maxTicksLimit:8,color:c.tx2},grid:{color:c.bd+'44'}},
-        y1:{type:'linear',position:'left',
-            title:{display:true,text:'Speed (Hz/beat)',color:c.grn},
-            ticks:{color:c.tx2},grid:{color:c.bd+'44'}},
-        y2:{type:'linear',position:'right',
-            title:{display:true,text:'Hysteresis area (Hz²)',color:c.amb},
-            ticks:{color:c.tx2},grid:{display:false}}
+        y:{title:{display:true,text:'Area (Hz²)',color:c.grn},ticks:{color:c.tx2},grid:{color:c.bd+'44'}}
       }
-    }
+    })
   });
 }
 
@@ -1403,8 +1476,8 @@ function renderParamTable(p,dm){
     {l:'Fit RMSE',v:dm.rmse.toFixed(2),u:'ms'},
     {l:'Gated beats',v:dm.pctGated.toFixed(1),u:'%'},
     {l:'Phase Area',v:dm.phaseArea.toFixed(5),u:'Hz²'},
-    {l:'Path Length',v:dm.phasePath.toFixed(3),u:'Hz'},
-    {l:'Mean Entropy',v:dm.mEntropy.toFixed(2),u:'nats'},
+    {l:'Mean EPR  ṡ̄',v:dm.mEPR.toFixed(4),u:'s⁻¹'},
+    {l:'Allostatic Load',v:dm.totalAlloLoad.toFixed(4),u:''},
     {l:'Balance σ',v:dm.abiStd.toFixed(3),u:'nats'},
   ];
   document.getElementById('metric-grid').innerHTML=items.map(it=>`
@@ -1420,9 +1493,16 @@ function renderParamTable(p,dm){
 let loadedRR=null, simParams=null, lastFit=null;
 
 function parseRR(txt){
-  const vals=txt.trim().split(/[\n\r,;\t ]+/)
-    .map(s=>parseFloat(s.trim())).filter(v=>isFinite(v)&&v>0.1&&v<3.0);
-  return vals.length>=30?vals:null;
+  // Parse all finite positive numbers
+  const raw=txt.trim().split(/[\n\r,;\t ]+/)
+    .map(s=>parseFloat(s.trim())).filter(v=>isFinite(v)&&v>0);
+  if(!raw.length) return null;
+  // Auto-detect unit: if the median value > 3 the data is almost certainly in ms
+  const sorted=[...raw].sort((a,b)=>a-b);
+  const median=sorted[Math.floor(sorted.length/2)];
+  const wasMs=median>3;
+  const vals=raw.map(v=>wasMs?v/1000:v).filter(v=>v>0.1&&v<3.0);
+  return vals.length>=30?{vals,wasMs}:null;
 }
 
 // ── Theme toggle ──
@@ -1483,9 +1563,11 @@ document.getElementById('file-in').onchange=function(){
 function readFile(f){
   const r=new FileReader();
   r.onload=e=>{
-    const rr=parseRR(e.target.result);
-    if(!rr){showAlert('err','Could not parse file — need ≥30 RR values in seconds (0.1–3.0 s).');return;}
-    setData(rr,f.name); showAlert('ok',`Loaded: ${f.name}  (${rr.length} beats)`);
+    const res=parseRR(e.target.result);
+    if(!res){showAlert('err','Could not parse file — need ≥30 RR values in seconds (0.1–3.0 s) or milliseconds (100–3000 ms).');return;}
+    const{vals,wasMs}=res;
+    setData(vals,f.name);
+    showAlert('ok',`Loaded: ${f.name}  (${vals.length} beats${wasMs?' · auto-converted ms → s':''})` );
   };
   r.readAsText(f);
 }
@@ -1570,9 +1652,11 @@ function rebuildAllCharts(fit){
   buildRRChart(fit.time,fit.dy,fit.irr,fit.rrV,fit.gate);
   buildStatesChart(fit.time,fit.Xp,fit.Xs,fit.XpV,fit.XsV);
   buildPhaseChart(fit.Xp,fit.Xs,fit.params);
-  buildABIChart(fit.time,dm.abi,dm.tad);
-  buildEntropyChart(fit.time,dm.entropy);
-  buildHysteresisChart(fit.time,dm.runningArea,dm.phaseSpeed);
+  buildABIChart(fit.time,dm.abi);
+  buildTotalDriveChart(fit.time,dm.tad);
+  buildEPRChart(fit.time,dm.epr);
+  buildAlloLoadChart(fit.time,dm.alloLoad);
+  buildHysteresisChart(fit.time,dm.runningArea);
   const psd=hrPSD(fit.dy,fit.irr,fit.time);
   buildPSDChart(psd.obs.freq,psd.obs.pow,psd.flt.freq,psd.flt.pow);
   if(fit.innovations){
@@ -1619,9 +1703,11 @@ document.getElementById('btn-run').onclick=async function(){
     buildRRChart(fit.time,fit.dy,fit.irr,fit.rrV,fit.gate);
     buildStatesChart(fit.time,fit.Xp,fit.Xs,fit.XpV,fit.XsV);
     buildPhaseChart(fit.Xp,fit.Xs,fit.params);
-    buildABIChart(fit.time,dm.abi,dm.tad);
-    buildEntropyChart(fit.time,dm.entropy);
-    buildHysteresisChart(fit.time,dm.runningArea,dm.phaseSpeed);
+    buildABIChart(fit.time,dm.abi);
+    buildTotalDriveChart(fit.time,dm.tad);
+    buildEPRChart(fit.time,dm.epr);
+    buildAlloLoadChart(fit.time,dm.alloLoad);
+    buildHysteresisChart(fit.time,dm.runningArea);
     const psd=hrPSD(fit.dy,fit.irr,fit.time);
     buildPSDChart(psd.obs.freq,psd.obs.pow,psd.flt.freq,psd.flt.pow);
 
@@ -1689,6 +1775,34 @@ function chartOpts(extra={}) {
     }
   }, extra);
 }
+
+// ── Responsive chart resize ──
+// Chart.js uses an internal ResizeObserver but it watches canvas parents only.
+// Sidebar-width changes and CSS-grid reflows can shift layout without the
+// observer firing. This debounced handler forces a resize on all active charts.
+(()=>{
+  let _rzTimer;
+  function forceChartResize(){
+    Object.values(_ch).forEach(c=>{try{c.resize();}catch(_){}});
+  }
+  window.addEventListener('resize',()=>{
+    clearTimeout(_rzTimer);
+    _rzTimer=setTimeout(forceChartResize,80);
+  });
+  // Also handle orientation changes on mobile (fires separately from 'resize')
+  window.addEventListener('orientationchange',()=>{
+    clearTimeout(_rzTimer);
+    _rzTimer=setTimeout(forceChartResize,200);
+  });
+  // Re-run after any sidebar collapse/expand animation finishes
+  // (collapsible panels use CSS transitions)
+  document.querySelectorAll('.panel-hdr').forEach(hdr=>{
+    hdr.addEventListener('click',()=>{
+      clearTimeout(_rzTimer);
+      _rzTimer=setTimeout(forceChartResize,200);
+    });
+  });
+})();
 
 
 
