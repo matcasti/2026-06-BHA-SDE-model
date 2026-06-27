@@ -7,6 +7,7 @@ title: "SPARK: Stochastic Phase-Domain Autonomic Reconstruction Kinetics for Car
 #| include: false
 file.copy("../R/01_model_engine.R", to = "model_code.R", overwrite = TRUE)
 file.copy("../results/df_population_summary.rds", to = "df_population_summary.rds", overwrite = TRUE)
+file.copy("../web-app/index.html", to = "app.html", overwrite = TRUE)
 ```
 
 **Abstract**
