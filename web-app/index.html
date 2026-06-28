@@ -137,9 +137,12 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
 
 /* ── METRIC GRID ── */
 .metric-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:9px;margin-bottom:16px}
-.mc{background:var(--s0);border:1px solid var(--bd);border-radius:var(--r);padding:9px 12px}
+.mc{background:var(--s0);border:1px solid var(--bd);border-radius:var(--r);padding:9px 12px;overflow:hidden}
 .mc.hi{border-color:var(--acc);background:var(--acc-d)}
-.mc-lbl{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--tx2);margin-bottom:3px}
+/* min-width:0 lets the flex container shrink below its content size */
+.mc-lbl{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--tx2);margin-bottom:3px;display:flex;align-items:center;justify-content:space-between;gap:4px;min-width:0}
+/* Label text truncates with ellipsis so the info-btn is never pushed out */
+.mc-lbl>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .mc-val{font-size:.96rem;font-weight:700;font-family:var(--font-mono);color:var(--tx1);line-height:1.2}
 .mc-unit{font-size:.65rem;font-weight:400;color:var(--tx2)}
 
@@ -167,7 +170,7 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
 
 /* ── CHART CARDS ── */
 .cc{background:var(--s0);border:1px solid var(--bd);border-radius:var(--r);padding:13px 15px}
-.cc-lbl{font-size:.59rem;text-transform:uppercase;letter-spacing:.1em;color:var(--tx3);font-weight:700;margin-bottom:10px}
+.cc-lbl{font-size:.59rem;text-transform:uppercase;letter-spacing:.1em;color:var(--tx3);font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .mb{margin-bottom:12px}
 
@@ -176,6 +179,37 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
 .dchip{background:var(--s1);border:1px solid var(--bd);border-radius:var(--rx);padding:4px 9px;font-size:.68rem;display:flex;align-items:center;gap:5px}
 .dchip .dk{color:var(--tx2)}.dchip .dv{font-family:var(--font-mono);color:var(--tx1);font-weight:600}
 .dchip.pass .dv{color:var(--grn)}.dchip.warn .dv{color:var(--amb)}.dchip.fail .dv{color:var(--red)}
+
+/* ── INFO TOOLTIP BUTTON ── */
+/* font-size:0 hides the raw text node; ::before renders the "i" via
+   absolute centering (top/left 50% + translate -50%) so the character's
+   own bounding box is placed at the geometric center of the circle — more
+   reliable than flex centering which aligns the line-box, not the glyph. */
+.info-btn{display:inline-flex;align-items:center;justify-content:center;
+  width:13px;height:13px;border-radius:50%;flex-shrink:0;
+  position:relative;
+  background:var(--s2);border:1px solid var(--bd2);
+  color:var(--tx2);font-size:0;padding:0;cursor:pointer;
+  transition:background var(--tr),color var(--tr),border-color var(--tr)}
+.info-btn::before{content:'i';
+  position:absolute;top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  font-family:Georgia,'Times New Roman',serif;
+  font-style:italic;font-weight:700;font-size:8px;line-height:1;
+  color:inherit}
+.info-btn:hover,.info-btn:focus-visible{background:var(--acc-d);border-color:var(--acc);color:var(--acc);outline:none}
+
+/* ── FLOATING INFO TOOLTIP ── */
+#info-tip{position:fixed;z-index:9999;width:272px;
+  background:var(--s1);border:1px solid var(--bd2);border-radius:var(--r);
+  padding:11px 14px;font-size:.71rem;line-height:1.6;color:var(--tx1);
+  box-shadow:0 8px 32px rgba(0,0,0,.36);
+  pointer-events:none;opacity:0;transition:opacity .12s ease;
+  left:-9999px;top:-9999px}
+#info-tip.show{opacity:1}
+#info-tip .tip-title{display:block;font-weight:700;font-size:.73rem;color:var(--tx1);margin-bottom:5px;padding-bottom:5px;border-bottom:1px solid var(--bd)}
+#info-tip .tip-formula{display:block;font-family:var(--font-mono);font-size:.64rem;color:var(--acc);background:var(--s0);border:1px solid var(--bd);border-radius:var(--rx);padding:4px 8px;margin:6px 0}
+#info-tip .tip-body{color:var(--tx2);font-size:.7rem;line-height:1.58}
 
 /* ── STRUCTURAL RESPONSIVENESS FIXES ── */
 /* Workspace never causes horizontal scroll */
@@ -219,6 +253,12 @@ canvas{display:block;max-width:100%}
 <body>
 
 <!-- ══ APP ROOT ══ -->
+<!-- Shared floating info tooltip (positioned by JS) -->
+<div id="info-tip" role="tooltip" aria-live="polite">
+  <span class="tip-title"></span>
+  <span class="tip-formula"></span>
+  <span class="tip-body"></span>
+</div>
 <div id="app">
 
 <!-- TOPBAR -->
@@ -401,14 +441,18 @@ canvas{display:block;max-width:100%}
             <canvas id="chart-abi" height="260"></canvas>
           </div>
         </div>
+        <div class="cc mb" style="margin-top:12px">
+          <div class="cc-lbl">Total Autonomic Drive Magnitude ‖x‖</div>
+          <canvas id="chart-totaldrive" height="140"></canvas>
+        </div>
         <div class="g2" style="margin-top:12px">
-          <div class="cc">
-            <div class="cc-lbl">Total Autonomic Drive Magnitude ‖x‖</div>
-            <canvas id="chart-totaldrive" height="160"></canvas>
-          </div>
           <div class="cc">
             <div class="cc-lbl">Entropy Production Rate ṡ(t) — Instantaneous Allostatic Cost</div>
             <canvas id="chart-epr" height="160"></canvas>
+          </div>
+          <div class="cc">
+            <div class="cc-lbl">Phase-Plane Areal Velocity dA/dt — Instantaneous Rotation Rate</div>
+            <canvas id="chart-arealvel" height="160"></canvas>
           </div>
         </div>
         <div class="g2" style="margin-top:12px">
@@ -417,7 +461,7 @@ canvas{display:block;max-width:100%}
             <canvas id="chart-alloload" height="160"></canvas>
           </div>
           <div class="cc">
-            <div class="cc-lbl">Phase Space Hysteresis — Broken Time-Reversal Symmetry ∮ X_P dX_S</div>
+            <div class="cc-lbl">Phase Space Hysteresis ∮ X_P dX_S — Cumulative, Duration-Sensitive</div>
             <canvas id="chart-hysteresis" height="160"></canvas>
           </div>
         </div>
@@ -964,11 +1008,36 @@ function derivedMetrics(fit){
   const{Xp,Xs,XpV,XsV,irr,dy,gate,params}=fit;
   const N=irr.length, e=1e-8;
 
-  // ── Log-ratio autonomic balance (unconstrained)
-  // Positive = vagal dominant, negative = sympathetic dominant
-  const abi=Xp.map((xp,i)=>Math.log((Math.abs(xp)+e)/(Math.abs(Xs[i])+e)));
-  const mABI=abi.reduce((a,b)=>a+b,0)/N;
-  const abiStd=Math.sqrt(abi.reduce((s,v)=>s+(v-mABI)**2,0)/N);
+  // ── Steady-state (stationary) variances of each OU drive — the natural
+  // physiological amplitude scale for each branch. Used below both for the
+  // balance index and for the entropy production rate.
+  const V_P_ss=params.lp*params.sig2;   // steady-state parasympathetic variance Λ_P·σ²sys
+  const V_S_ss=params.sig2;              // steady-state sympathetic variance σ²sys
+  const sdP_ss=Math.sqrt(V_P_ss), sdS_ss=Math.sqrt(V_S_ss);
+
+  // Map real-line states to (0, 1) preserving activation (+) vs withdrawal (-)
+  // Baseline (0) maps to 0.5; Activation maps > 0.5; Withdrawal maps < 0.5
+  const fP = Xp.map(xp => 0.5 + (1 / Math.PI) * Math.atan(xp / sdP_ss));
+  const fS = Xs.map(xs => 0.5 + (1 / Math.PI) * Math.atan(xs / sdS_ss));
+
+  // Stabilized and EMA-smoothed Autonomic Balance Index
+  const abiSmoothingFactor = 0.1; // α: Lower is smoother (e.g., 0.05 - 0.2)
+  let previousABI = 0;
+
+  const abi = fP.map((v, i) => {
+      // Log ratio of the shifted states.
+      // Positive = vagal dominant, Negative = sympathetic dominant.
+      const rawLogBalance = Math.log((v) / (fS[i]));
+
+      // Initialize EMA on the first iteration
+      if (i === 0) previousABI = rawLogBalance;
+
+      const smoothedABI = (abiSmoothingFactor * rawLogBalance) + ((1 - abiSmoothingFactor) * previousABI);
+      previousABI = smoothedABI;
+      return smoothedABI;
+  });
+  const mABI = abi.reduce((a,b)=>a+b,0)/N;
+  const abiStd = Math.sqrt(abi.reduce((s,v)=>s+(v-mABI)**2,0)/N);
 
   // ── Total drive magnitude ‖x‖
   const tad=Xp.map((xp,i)=>Math.sqrt(xp*xp+Xs[i]*Xs[i]));
@@ -989,11 +1058,16 @@ function derivedMetrics(fit){
   // ── Stochastic Entropy Production Rate — allostatic load proxy
   // For OU process: ṡ(t) = κ_P·(X_P²/V_P_ss − 1) + κ_S·(X_S²/V_S_ss − 1)
   // Zero at steady-state mean; positive = system working above thermodynamic baseline
-  const V_P_ss=params.lp*params.sig2;   // steady-state parasympathetic variance Λ_P·σ²sys
-  const V_S_ss=params.sig2;              // steady-state sympathetic variance σ²sys
   const epr=Xp.map((xp,i)=>
     params.kp*(xp*xp/V_P_ss - 1) + params.ks*(Xs[i]*Xs[i]/V_S_ss - 1)
   );
+
+  // --- EMA Smoothing for Entropy Production Rate ---
+  const eprAlpha = 0.10; // Smoothing factor (0.05 to 0.20). Lower = smoother.
+  for(let i=1; i<epr.length; i++){
+      epr[i] = (eprAlpha * epr[i]) + ((1 - eprAlpha) * epr[i-1]);
+  }
+
   const mEPR=epr.reduce((a,b)=>a+b,0)/N;
 
   // ── Cumulative allostatic load: time-integrated EPR  ∫ṡ dt
@@ -1004,6 +1078,12 @@ function derivedMetrics(fit){
   const totalAlloLoad=cumEP;
 
   // ── Phase space hysteresis: shoelace signed area (broken time-reversal symmetry)
+  // NOTE — distance-type metric: this running sum behaves like the accumulated
+  // Lévy area of a 2-D stochastic trajectory, whose typical magnitude grows with
+  // √(recording length) even for a perfectly stationary process. Useful for
+  // within-recording inspection, but NOT comparable across recordings of
+  // different duration — see arealVel / rmsArealVel below for the duration-fair
+  // companion metric.
   const runningArea=[0];
   let cumArea=0;
   for(let i=0;i<N-1;i++){
@@ -1012,9 +1092,31 @@ function derivedMetrics(fit){
   }
   const phaseArea=Math.abs(cumArea);
 
+  // ── Phase-plane areal velocity: instantaneous rate of area sweep, dA/dt
+    // Discrete analogue of the continuous Green's-theorem rate ½(X_P·Ẋ_S − X_S·Ẋ_P),
+    // formed by dividing each shoelace increment by the real elapsed time (dy[i])
+    // instead of letting it accumulate. This is the velocity-type companion to the
+    // distance-type cumulative hysteresis above.
+    const arealVel=[0];
+    for(let i=0;i<N-1;i++){
+      const dt=Math.max(dy[i],1e-6);
+      arealVel.push(0.5*(Xp[i]*Xs[i+1]-Xp[i+1]*Xs[i])/dt);
+    }
+
+    // --- EMA Smoothing for Areal Velocity (Least Invasive Fix) ---
+    const avelAlpha = 0.01; // Smoothing factor (0.01 to 0.15). Lower = smoother.
+    for(let i=1; i<arealVel.length; i++){
+        arealVel[i] = (avelAlpha * arealVel[i]) + ((1 - avelAlpha) * arealVel[i-1]);
+    }
+    // ------------------------------------------------------------------
+
+    const mArealVel=arealVel.reduce((a,b)=>a+b,0)/N;
+    const rmsArealVel=Math.sqrt(arealVel.reduce((s,v)=>s+v*v,0)/N);
+
   return{abi,tad,rmssdFlt,rmssdObs,sdnnFlt,mABI,abiStd,
     nGated,pctGated:100*nGated/N,rmse,mape,
-    epr,mEPR,alloLoad,totalAlloLoad,phaseArea,runningArea};
+    epr,mEPR,alloLoad,totalAlloLoad,phaseArea,runningArea,
+    arealVel,mArealVel,rmsArealVel};
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1203,7 +1305,7 @@ function buildABIChart(time,abi){
       plugins:{legend:{labels:{filter:i=>i.datasetIndex>=1,color:c.tx2,boxWidth:10,padding:9}}},
       scales:{
         x:{title:{display:true,text:'Time (s)',color:c.tx2},ticks:{maxTicksLimit:8,color:c.tx2},grid:{color:c.bd+'44'}},
-        y:{title:{display:true,text:'ln(|X_P| / |X_S|)',color:c.acc},ticks:{color:c.tx2},grid:{color:c.bd+'44'}}
+        y:{title:{display:true,text:'EMA[ ln( f(X_P) / f(X_S) ) ]',color:c.acc},ticks:{color:c.tx2},grid:{color:c.bd+'44'}}
       }
     })
   });
@@ -1443,6 +1545,37 @@ function buildHysteresisChart(time,runningArea){
   });
 }
 
+// ── Phase-plane areal velocity — instantaneous dA/dt (duration-independent) ──
+function buildArealVelChart(time,arealVel){
+  destroyChart('arealvel'); const c=tc();
+  const lab=time.map(t=>t.toFixed(1));
+  const zero=arealVel.map(()=>0);
+  // Positive = counter-clockwise sweep; negative = clockwise sweep
+  const posData=arealVel.map(v=>v>0?v:0);
+  const negData=arealVel.map(v=>v<0?v:0);
+  _ch.arealvel=new Chart(document.getElementById('chart-arealvel'),{
+    type:'line',
+    data:{labels:lab,datasets:[
+      {label:'',data:zero,borderColor:c.tx2+'30',backgroundColor:'transparent',
+       pointRadius:0,borderWidth:1,borderDash:[4,4]},
+      {label:'CCW sweep (+)',data:posData,
+       borderColor:'transparent',backgroundColor:c.red+'28',fill:true,pointRadius:0,borderWidth:0},
+      {label:'CW sweep (−)',data:negData,
+       borderColor:'transparent',backgroundColor:c.teal+'28',fill:true,pointRadius:0,borderWidth:0},
+      {label:'Areal velocity dA/dt',data:arealVel,
+       borderColor:c.grn,backgroundColor:'transparent',
+       pointRadius:0,borderWidth:1.7}
+    ]},
+    options:baseOpts({
+      plugins:{legend:{labels:{filter:i=>i.datasetIndex>=1,color:c.tx2,boxWidth:10,padding:9}}},
+      scales:{
+        x:{title:{display:true,text:'Time (s)',color:c.tx2},ticks:{maxTicksLimit:8,color:c.tx2},grid:{color:c.bd+'44'}},
+        y:{title:{display:true,text:'dA/dt (Hz²·s⁻¹)',color:c.grn},ticks:{color:c.tx2},grid:{color:c.bd+'44'}}
+      }
+    })
+  });
+}
+
 // ═══════════════════════════════════════════════════════════
 // §15  PARAMETER TABLE & METRIC GRID
 // ═══════════════════════════════════════════════════════════
@@ -1465,24 +1598,25 @@ function renderParamTable(p,dm){
     <td class="pv">${fmt(r.val)}</td><td class="pi">${r.interp}</td><td class="ps">${r.st}</td></tr>`).join('');
 
   const items=[
-    {l:'Heart Rate',v:(p.nu0*60).toFixed(1),u:'bpm',hi:true},
-    {l:'τ Sympathetic',v:(1/p.ks).toFixed(1),u:'s'},
-    {l:'τ Parasympathetic',v:(1/p.kp).toFixed(2),u:'s'},
-    {l:'κ_P / κ_S',v:(p.kp/p.ks).toFixed(2),u:'×'},
-    {l:'HF/LF Energy',v:p.lp.toFixed(3),u:''},
-    {l:'σ_P / σ_S',v:(p.sigP/p.sigS).toFixed(2),u:'×'},
-    {l:'RMSSD (filtered)',v:dm.rmssdFlt.toFixed(1),u:'ms'},
-    {l:'SDNN (filtered)',v:dm.sdnnFlt.toFixed(1),u:'ms'},
-    {l:'Fit RMSE',v:dm.rmse.toFixed(2),u:'ms'},
-    {l:'Gated beats',v:dm.pctGated.toFixed(1),u:'%'},
-    {l:'Phase Area',v:dm.phaseArea.toFixed(5),u:'Hz²'},
-    {l:'Mean EPR  ṡ̄',v:dm.mEPR.toFixed(4),u:'s⁻¹'},
-    {l:'Allostatic Load',v:dm.totalAlloLoad.toFixed(4),u:''},
-    {l:'Balance σ',v:dm.abiStd.toFixed(3),u:'nats'},
+    {l:'Heart Rate',        v:(p.nu0*60).toFixed(1),      u:'bpm', hi:true, t:'m-hr'},
+    {l:'τ Sympathetic',     v:(1/p.ks).toFixed(1),        u:'s',            t:'m-ts'},
+    {l:'τ Parasympathetic', v:(1/p.kp).toFixed(2),        u:'s',            t:'m-tp'},
+    {l:'κ_P / κ_S',         v:(p.kp/p.ks).toFixed(2),     u:'×',            t:'m-kpks'},
+    {l:'HF/LF Energy',      v:p.lp.toFixed(3),            u:'',             t:'m-hflf'},
+    {l:'σ_P / σ_S',         v:(p.sigP/p.sigS).toFixed(2), u:'×',            t:'m-sigs'},
+    {l:'RMSSD (filtered)',  v:dm.rmssdFlt.toFixed(1),     u:'ms',           t:'m-rmssd'},
+    {l:'SDNN (filtered)',   v:dm.sdnnFlt.toFixed(1),      u:'ms',           t:'m-sdnn'},
+    {l:'Fit RMSE',          v:dm.rmse.toFixed(2),          u:'ms',           t:'m-rmse'},
+    {l:'Gated beats',       v:dm.pctGated.toFixed(1),     u:'%',            t:'m-gate'},
+    {l:'Phase Area',        v:dm.phaseArea.toFixed(5),    u:'Hz²',          t:'m-area'},
+    {l:'Areal Velocity',    v:dm.rmsArealVel.toFixed(5),  u:'Hz²/s',        t:'m-avel'},
+    {l:'Mean EPR  ṡ̄',      v:dm.mEPR.toFixed(4),         u:'s⁻¹',         t:'m-mepr'},
+    {l:'Allostatic Load',   v:dm.totalAlloLoad.toFixed(4),u:'',             t:'m-load'},
+    {l:'Balance σ',         v:dm.abiStd.toFixed(3),       u:'nats',         t:'m-bstd'},
   ];
   document.getElementById('metric-grid').innerHTML=items.map(it=>`
     <div class="mc${it.hi?' hi':''}">
-      <div class="mc-lbl">${it.l}</div>
+      <div class="mc-lbl"><span>${it.l}</span><button class="info-btn" data-tip="${it.t}" aria-label="About ${it.l}">i</button></div>
       <div class="mc-val">${it.v}<span class="mc-unit"> ${it.u}</span></div>
     </div>`).join('');
 }
@@ -1657,6 +1791,7 @@ function rebuildAllCharts(fit){
   buildEPRChart(fit.time,dm.epr);
   buildAlloLoadChart(fit.time,dm.alloLoad);
   buildHysteresisChart(fit.time,dm.runningArea);
+  buildArealVelChart(fit.time,dm.arealVel);
   const psd=hrPSD(fit.dy,fit.irr,fit.time);
   buildPSDChart(psd.obs.freq,psd.obs.pow,psd.flt.freq,psd.flt.pow);
   if(fit.innovations){
@@ -1708,6 +1843,7 @@ document.getElementById('btn-run').onclick=async function(){
     buildEPRChart(fit.time,dm.epr);
     buildAlloLoadChart(fit.time,dm.alloLoad);
     buildHysteresisChart(fit.time,dm.runningArea);
+    buildArealVelChart(fit.time,dm.arealVel);
     const psd=hrPSD(fit.dy,fit.irr,fit.time);
     buildPSDChart(psd.obs.freq,psd.obs.pow,psd.flt.freq,psd.flt.pow);
 
@@ -1805,8 +1941,266 @@ function chartOpts(extra={}) {
 })();
 
 
+// ═══════════════════════════════════════════════════════════
+// §  INFO TOOLTIP SYSTEM
+// ═══════════════════════════════════════════════════════════
 
+// ── Tooltip content dictionary ──
+// Each entry: { title, formula (optional), body }
+const TIPS = {
+  // ── Metric cards ──────────────────────────────────────────
+  'm-hr':{
+    title:'Heart Rate (bpm)',
+    formula:'HR = ν₀ × 60',
+    body:'Intrinsic SA node pacing rate absent all autonomic tone. This is the baseline rate the sinoatrial node would maintain if both vagal and sympathetic influences were simultaneously removed — equivalent to the pharmacologically-blocked "zero-tone" rate observed in denervation studies.'
+  },
+  'm-ts':{
+    title:'τ Sympathetic (s)',
+    formula:'τ_S = 1 / κ_S',
+    body:'Sympathetic neurotransmitter time constant. Controls how long after a neural burst the norepinephrine-mediated drive remains elevated at the SA node. Longer τ_S (10–30 s typical) produces the slow, sustained adrenergic responses characteristic of the fight-or-flight arc.'
+  },
+  'm-tp':{
+    title:'τ Parasympathetic (s)',
+    formula:'τ_P = 1 / κ_P',
+    body:'Vagal acetylcholine clearance time constant. Acetylcholine is hydrolysed by AChE on the ms timescale, so τ_P ≪ τ_S physiologically (0.5–3 s). This kinetic asymmetry enables rapid beat-to-beat heart rate slowing and is the principal generator of high-frequency HRV.'
+  },
+  'm-kpks':{
+    title:'κ_P / κ_S — Kinetic Asymmetry',
+    formula:'κ_P / κ_S',
+    body:'Ratio of autonomic clearance rates. Values substantially > 1 confirm the expected physiological asymmetry: vagal control operates orders of magnitude faster than sympathetic. This ratio determines the frequency separation between LF (sympathetic) and HF (parasympathetic) HRV bands.'
+  },
+  'm-hflf':{
+    title:'HF/LF Energy Λ_P',
+    formula:'Λ_P = E_HF / E_LF  [CWT-anchored]',
+    body:'Parasympathetic-to-sympathetic spectral energy ratio estimated via Morlet continuous wavelet transform prior. Higher values indicate vagal dominance of HRV. Used by the Kalman filter as a prior on the relative amplitude of the two latent OU drivers.'
+  },
+  'm-sigs':{
+    title:'σ_P / σ_S — Drive Amplitude Ratio',
+    formula:'σ_P / σ_S = √(2κ_P Λ_P σ²sys) / √(2κ_S σ²sys)',
+    body:'Ratio of absolute parasympathetic-to-sympathetic drive amplitudes. Reflects the relative excursion range of each branch around its resting level. Values > 1 mean vagal modulation is larger in amplitude; values < 1 indicate sympathetic predominance.'
+  },
+  'm-rmssd':{
+    title:'RMSSD — filtered (ms)',
+    formula:'RMSSD = 1000 · √( Σ(IRR_i − IRR_{i−1})² / (N−1) )',
+    body:'Root mean square of successive differences computed on the Kalman-filtered RR series. By operating on the smoothed latent rate rather than raw beats, it isolates true autonomic variation from ectopic artifacts and measurement noise. Primary index of parasympathetic (vagal) tone.'
+  },
+  'm-sdnn':{
+    title:'SDNN — filtered (ms)',
+    formula:'SDNN = 1000 · std(IRR)',
+    body:'Standard deviation of the Kalman-filtered NN intervals. Overall HRV magnitude index spanning all frequencies — both sympathetic (LF) and parasympathetic (HF) contributions. Computed on the smoothed latent cardiac rate estimate rather than raw observed beats.'
+  },
+  'm-rmse':{
+    title:'Fit RMSE (ms)',
+    formula:'RMSE = 1000 · √( Σ(ŷ_k − y_k)² / N )',
+    body:'Root mean square error between the model-predicted and observed RR intervals. The principal measure of overall model fit quality. Values < 15 ms are typical for normal sinus rhythm with clean data; higher values may indicate complex arrhythmia, non-stationarity, or sensor artifacts.'
+  },
+  'm-gate':{
+    title:'Gated Beats (%)',
+    formula:'gate_k = exp(−(|Δy_k| / θ_jump)²)',
+    body:'Percentage of beats identified as non-sinus (ectopic, artifact, or rhythm change) and down-weighted by the soft Gaussian gate function. Beats whose RR deviation exceeds θ_jump receive near-zero weight in the likelihood, making the Kalman filter robust to arrhythmia without hard exclusion.'
+  },
+  'm-area':{
+    title:'Phase Area (Hz²)',
+    formula:'A = ½ |∮ X_P dX_S|  [shoelace]',
+    body:'Total area enclosed by the autonomic state trajectory in the (X_P, X_S) phase plane, computed via the discrete shoelace formula. Quantifies the geometric extent of state-space exploration. Caveat: this is a cumulative, distance-type quantity — like an accumulated Lévy area, its magnitude tends to grow with recording length (≈√duration) even for a stationary process, so it should not be used to compare recordings of different duration. Use "Areal Velocity" for a duration-fair comparison.'
+  },
+  'm-avel':{
+    title:'Areal Velocity (Hz²/s)',
+    formula:'Ω_rms = √⟨ (½(X_P Ẋ_S − X_S Ẋ_P))² ⟩_t',
+    body:'Root-mean-square instantaneous rate at which the (X_P, X_S) trajectory sweeps phase-plane area — the velocity-type companion to the cumulative "Phase Area" above. Because it is a rate rather than a running total, its scale does not grow with recording duration or beat count, making it the more appropriate metric for comparing state-space exploration vigor across recordings of different length.'
+  },
+  'm-mepr':{
+    title:'Mean EPR  ṡ̄ (s⁻¹)',
+    formula:'ṡ̄ = ⟨κ_P(X_P²/V_P^ss−1) + κ_S(X_S²/V_S^ss−1)⟩_t',
+    body:'Time-averaged stochastic entropy production rate derived from Ornstein-Uhlenbeck non-equilibrium statistical mechanics. Zero at thermodynamic equilibrium. Positive values confirm the autonomic system operates as an open dissipative system, expending continuous metabolic work to maintain ordered chronotropic rhythms against environmental perturbations.'
+  },
+  'm-load':{
+    title:'Allostatic Load (dimensionless)',
+    formula:'L = ∫ ṡ(t) dt  [time-integrated EPR]',
+    body:'Cumulative allostatic load: the time-integrated entropy production over the full recording, weighted by beat interval duration. Represents the total thermodynamic work invested by the organism to maintain chronotropic stability. Increases monotonically under sustained stress; plateaus or declines during autonomic recovery phases.'
+  },
+  'm-bstd':{
+    title:'Balance σ (nats)',
+    formula:'σ_B = std( EMA[ ln(f(X_P)/f(X_S)) ] )',
+    body:'Standard deviation of the smoothed Autonomic Log Balance Index. Indicates the volatility or dynamic range of the autonomic balance over the recording. High values suggest a highly reactive and fluctuating autonomic equilibrium; low values suggest a rigid, highly constrained balance.'
+  },
 
+  // ── Chart panels ──────────────────────────────────────────
+  'c-rr':{
+    title:'RR Interval — Observed vs. Filtered',
+    formula:'y_k ~ N(1/ν(x_k), Λ_R/ν²)',
+    body:'Observed beat-to-beat RR intervals (grey), Kalman-filtered latent rate estimate (red line) and 95% prediction interval (shaded band). Gated beats (ectopic, artifact, or rhythm change) are marked with triangles. The filter separates true autonomic variation from measurement noise and non-sinus events without hard-rejecting beats.'
+  },
+  'c-psd':{
+    title:'Power Spectral Density',
+    formula:'LF: 0.04–0.15 Hz  |  HF: 0.15–0.40 Hz',
+    body:'PSD of observed (grey) vs. Kalman-filtered (coloured) RR series estimated via Welch periodogram. Red shading marks the LF band (mixed sympathetic/parasympathetic); teal marks HF (primarily vagal). Close overlap of empirical and model spectra validates the spectral assumptions embedded in the Λ_P prior.'
+  },
+  'c-states':{
+    title:'Latent Autonomic Drivers',
+    formula:'dX_P = −κ_P X_P dt + σ_P dW_P',
+    body:'Kalman-smoothed estimates of the latent parasympathetic X_P (blue) and sympathetic X_S (red) drives with 95% credible intervals. Units are Hz — the instantaneous contribution each branch makes to the cardiac pacing rate. Values above zero are excitatory (increased HR); below zero are inhibitory (decreased HR).'
+  },
+  'c-phase':{
+    title:'Autonomic Phase Space Topology',
+    formula:'(X_P(t), X_S(t)) ∈ ℝ²',
+    body:'Two-dimensional trajectory of the latent state vector through time. Colour encodes temporal progression from dark (early) to bright plasma (late); connecting lines highlight the sequential path. Ellipses mark the 1σ and 2σ steady-state covariance regions. Loops indicate cyclic modulation; concentrated clusters indicate autonomic quiescence. Loop area and direction reveal time-reversal asymmetry.'
+  },
+  'c-abi':{
+    title:'Log Autonomic Balance Index',
+    formula:'f(x) = 0.5 + (1/π)atan(x/σ_ss); ABI(t) = EMA[ ln(f(X_P)/f(X_S)) ]',
+    body:'Each latent drive is mapped to a strictly positive (0, 1) probability-like domain while preserving its sign: baseline maps to 0.5, autonomic activation approaches 1.0, and withdrawal approaches 0.0. The natural log-ratio of these shifted states prevents division-by-zero artifacts. Finally, an Exponential Moving Average (EMA) is applied for temporal stabilization, yielding a noise-resistant index of true physiological dominance (positive = vagal, negative = sympathetic).'
+  },
+  'c-tdrive':{
+    title:'Total Autonomic Drive ‖x‖',
+    formula:'‖x(t)‖ = √( X_P(t)² + X_S(t)² )',
+    body:'Euclidean norm of the two-dimensional latent state vector. Quantifies overall autonomic activity magnitude independent of which branch dominates. High values reflect strong bidirectional modulation; low values reflect autonomic quiescence. Proportional to the instantaneous kinetic energy of the autonomic oscillator.'
+  },
+  'c-epr':{
+    title:'Entropy Production Rate ṡ(t)',
+    formula:'ṡ(t) = κ_P(X_P²/V_P^ss−1) + κ_S(X_S²/V_S^ss−1)',
+    body:'Instantaneous stochastic entropy production rate in s⁻¹, derived from Ornstein-Uhlenbeck non-equilibrium statistical mechanics. Zero at steady state. Red shading (ṡ > 0) marks periods of thermodynamic load where both drives exceed their typical amplitudes; teal (ṡ < 0) marks recovery phases where drives are sub-typical. Serves as the instantaneous allostatic cost signal.'
+  },
+  'c-load':{
+    title:'Cumulative Allostatic Load',
+    formula:'L(t) = ∫₀ᵗ ṡ(τ) dτ  [weighted by dt]',
+    body:'Running time-integral of the entropy production rate, weighted by beat interval duration so that faster heart rates don\'t artificially inflate load. Rising segments reflect periods of sustained autonomic effort; plateaus or declining slopes indicate recovery. The final value is reported in the metric grid as "Allostatic Load".'
+  },
+  'c-hyst':{
+    title:'Phase Space Hysteresis',
+    formula:'A(t) = ½ ∮₀ᵗ X_P dX_S  [shoelace]',
+    body:'Signed running area swept by the autonomic trajectory in the phase plane, computed via the discrete shoelace formula. Non-zero accumulation indicates broken time-reversal symmetry — a fundamental thermodynamic signature of living non-equilibrium systems. Counter-clockwise loops produce positive area; clockwise produce negative. The absolute final value is the "Phase Area" metric. Caveat: being a running total, its scale tends to grow with recording length even for a stationary process — compare recordings of similar duration only, or use the "Phase-Plane Areal Velocity" panel for a duration-fair rate.'
+  },
+  'c-avel':{
+    title:'Phase-Plane Areal Velocity (Smoothed)',
+    formula:'dA/dt = EMA[ 0.5 (X_P·dX_S/dt − X_S·dX_P/dt) ]',
+    body:'The smoothed instantaneous rate at which the autonomic state sweeps out area in the sympathetic-parasympathetic phase plane. An Exponential Moving Average (EMA) is applied to filter high-frequency derivative noise, revealing the true macroscopic envelope of autonomic volatility and state transitions.'
+  },
+  'c-hist':{
+    title:'Innovation Distribution',
+    formula:'z_k = (y_k − ŷ_k) / σ_k  ~  N(0,1)?',
+    body:'Histogram of standardised Kalman filter innovations. A well-specified model produces i.i.d. N(0,1) innovations (red curve). Systematic skew indicates mis-specified drift; heavy tails indicate outliers not fully captured by the gate function; an overly narrow distribution suggests over-smoothing or an inflated measurement noise parameter.'
+  },
+  'c-qq':{
+    title:'Normal Q-Q Plot of Innovations',
+    formula:'z_(k) vs Φ⁻¹(k / (N+1))',
+    body:'Normal quantile-quantile plot of standardised innovations. Points on the diagonal (dashed) confirm Gaussian innovation distributions — a necessary condition for Kalman filter optimality. Deviations in the tails indicate outliers not fully captured by the gating; an S-shape indicates systematic non-Gaussianity in the underlying process.'
+  },
+  'c-pacf':{
+    title:'Partial Autocorrelation — Innovations',
+    formula:'Bounds: ± 1.96 / √N',
+    body:'Partial autocorrelation function of standardised innovations at lags 1–20. A well-specified model should show all bars within the 95% confidence bounds (dashed lines). Bars exceeding the bounds indicate residual temporal structure the model has not captured. A large lag-1 bar often signals that a clearance rate κ is underestimated; periodic patterns suggest mis-specified oscillator frequency.'
+  },
+  'c-ks':{
+    title:'Time-Rescaling KS Uniformity Test',
+    formula:'u_k = 1 − exp(−∫_{t_{k-1}}^{t_k} λ(s) ds)  ~  U(0,1)?',
+    body:'Time-rescaling goodness-of-fit test. Under the true model, transformed inter-event times u_k should be i.i.d. Uniform(0,1). The empirical CDF (red) should fall within the Kolmogorov-Smirnov confidence bands (green dashed). Departure above the diagonal indicates the model predicts rates that are too low; departure below indicates over-prediction.'
+  },
+};
+
+// ── Tooltip controller ──────────────────────────────────────
+(()=>{
+  const tip=document.getElementById('info-tip');
+  const tipTitle=tip.querySelector('.tip-title');
+  const tipFormula=tip.querySelector('.tip-formula');
+  const tipBody=tip.querySelector('.tip-body');
+  let _hideTimer, _lastBtn=null;
+
+  function positionTip(btn){
+    const rect=btn.getBoundingClientRect();
+    const tw=tip.offsetWidth||272;
+    requestAnimationFrame(()=>{
+      const th=tip.offsetHeight;
+      let left=rect.left+rect.width/2-tw/2;
+      let top=rect.bottom+9;
+      // clamp horizontally within viewport
+      left=Math.max(8,Math.min(left,window.innerWidth-tw-8));
+      // flip above button if too close to bottom
+      if(top+th>window.innerHeight-8) top=rect.top-th-9;
+      // clamp vertically — flipped tooltip must not escape above viewport
+      top=Math.max(8,top);
+      tip.style.left=left+'px';
+      tip.style.top=top+'px';
+    });
+  }
+
+  function showTip(btn){
+    clearTimeout(_hideTimer);
+    const d=TIPS[btn.dataset.tip];
+    if(!d) return;
+    tipTitle.textContent=d.title||'';
+    tipTitle.style.display=d.title?'block':'none';
+    tipFormula.textContent=d.formula||'';
+    tipFormula.style.display=d.formula?'block':'none';
+    tipBody.textContent=d.body||'';
+    tip.classList.add('show');
+    _lastBtn=btn;
+    positionTip(btn);
+  }
+
+  function hideTip(){
+    _hideTimer=setTimeout(()=>{tip.classList.remove('show');_lastBtn=null;},90);
+  }
+
+  // Hover (desktop)
+  document.addEventListener('mouseenter',e=>{
+    if(e.target.classList?.contains('info-btn')) showTip(e.target);
+  },true);
+  document.addEventListener('mouseleave',e=>{
+    if(e.target.classList?.contains('info-btn')) hideTip();
+  },true);
+
+  // Focus (keyboard navigation)
+  document.addEventListener('focusin',e=>{
+    if(e.target.classList?.contains('info-btn')) showTip(e.target);
+  });
+  document.addEventListener('focusout',e=>{
+    if(e.target.classList?.contains('info-btn')) hideTip();
+  });
+
+  // Click — toggle on mobile, dismiss on outside click
+  document.addEventListener('click',e=>{
+    if(e.target.classList?.contains('info-btn')){
+      e.stopPropagation();
+      if(tip.classList.contains('show')&&_lastBtn===e.target){hideTip();}
+      else showTip(e.target);
+    } else if(!tip.contains(e.target)){
+      hideTip();
+    }
+  });
+
+  // Hide on scroll (prevents stale tooltip positions)
+  window.addEventListener('scroll',hideTip,{passive:true,capture:true});
+  window.addEventListener('resize',hideTip,{passive:true});
+})();
+
+// ── Inject info buttons into chart card labels ─────────────
+// Maps canvas id → TIPS key; runs once after DOM is ready.
+(()=>{
+  const chartMap={
+    'chart-rr':'c-rr','chart-psd':'c-psd',
+    'chart-states':'c-states','chart-phase':'c-phase',
+    'chart-abi':'c-abi','chart-totaldrive':'c-tdrive',
+    'chart-epr':'c-epr','chart-alloload':'c-load',
+    'chart-hysteresis':'c-hyst','chart-arealvel':'c-avel',
+    'chart-hist':'c-hist','chart-qq':'c-qq',
+    'chart-pacf':'c-pacf','chart-ks':'c-ks',
+  };
+  document.querySelectorAll('.cc').forEach(cc=>{
+    const canvas=cc.querySelector('canvas');
+    if(!canvas) return;
+    const key=chartMap[canvas.id];
+    if(!key) return;
+    const lbl=cc.querySelector('.cc-lbl');
+    if(!lbl||lbl.querySelector('.info-btn')) return;
+    const btn=document.createElement('button');
+    btn.className='info-btn';
+    btn.dataset.tip=key;
+    btn.setAttribute('aria-label','About this chart');
+    btn.textContent='i';
+    lbl.appendChild(btn);
+  });
+})();
 
 
 </script>

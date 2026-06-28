@@ -1,5 +1,6 @@
 ---
-title: "Latent Stochastic Differential Equation Phase-Domain State-Space Framework for Cardiac Autonomic Neuroscience"
+title: "Supplementary material"
+subtitle: "SPARK: Stochastic Phase-Domain Autonomic Reconstruction Kinetics for Cardiac Autonomic Neuroscience"
 ---
 
 # Asymptotic convergence of the phase-domain mapping {#sec-phase-mapping}
