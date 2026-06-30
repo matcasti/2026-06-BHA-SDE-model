@@ -5,24 +5,23 @@ project:
     - supplementary.qmd
 
 website:
-  #title: "Phase-Domain State-Space Framework"
   navbar:
     left:
       - href: manuscript.qmd
         text: Manuscript
       - href: supplementary.qmd
         text: Supplementary
-      - href: app.html
+      - href: https://matcasti.github.io/SPARK-app/
         text: Web-App
     right:
       - icon: github
-        href: https://github.com/matcasti/2026-06-BHA-SDE-model
+        href: https://github.com/matcasti/2026-06-BHA-SDE-model/
 
 format:
   html:
     title-block-style: manuscript
     embed-resources: true
-    resources: [model_code.R, app.html]
+    resources: [model_code.R]
     code-links:
       - text: Model (R script)
         href: model_code.R
