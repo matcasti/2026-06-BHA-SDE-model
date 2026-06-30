@@ -221,6 +221,7 @@ A core operational advantage of the SPARK framework is its ability to evaluate c
 Let the continuous-time autonomic state vector be $\mathbf{X}(t) = [x_p(t), x_s(t), I_p(t), I_s(t)]^\intercal$, where $x_p(t)$ and $x_s(t)$ represent the instantaneous parasympathetic and sympathetic Ornstein-Uhlenbeck processes, and $I_p(t)$ and $I_s(t)$ represent their exact running integrals. 
 
 The continuous-time system dynamics are governed by the linear SDE:
+
 $$
 d\mathbf{X}(t) = \mathbf{A} \mathbf{X}(t) dt + \mathbf{G} d\mathbf{W}(t)
 $$
@@ -248,3 +249,56 @@ e^{-\kappa_p \Delta t_k} & 0 & 0 & 0 \\
 $$
 
 This exact transition matrix $\mathbf{F}_k$ allows the Kalman filter to propagate the state vector continuously across non-uniform biological time. Upon the registration of a macroscopic interval (the phase-domain boundary crossing), the integral states $I_p$ and $I_s$ are projected into the observation equation, and subsequently structurally reset to zero. This mathematical reset perfectly mirrors the biophysical depolarization and refractory resetting of the sinoatrial node, preserving absolute continuous-time fidelity without accumulation of discrete-time discretization errors.
+
+## Explicit derivation of the exact transition matrix
+
+To demonstrate the structural origin of this transition matrix, we evaluate $\exp(\mathbf{A} \Delta t_k)$ using the fundamental Taylor series definition of the matrix exponential:
+
+$$
+\exp(\mathbf{A} \Delta t_k) = \sum_{n=0}^{\infty} \frac{(\mathbf{A} \Delta t_k)^n}{n!} = \mathbf{I} + \mathbf{A} \Delta t_k + \frac{1}{2!} \mathbf{A}^2 \Delta t_k^2 + \dots
+$$
+
+Given the specific block structure of the continuous system matrix $\mathbf{A}$, evaluating its higher-order matrix powers reveals a strict deterministic pattern. For any integer $n \ge 1$:
+
+$$
+\mathbf{A}^n = \begin{bmatrix}
+(-\kappa_p)^n & 0 & 0 & 0 \\
+0 & (-\kappa_s)^n & 0 & 0 \\
+(-\kappa_p)^{n-1} & 0 & 0 & 0 \\
+0 & (-\kappa_s)^{n-1} & 0 & 0 
+\end{bmatrix}
+$$
+
+Substituting this matrix pattern back into the infinite series expansion allows us to evaluate the discrete elements of the transition matrix independently. For the top-left diagonal element governing the instantaneous parasympathetic state ($x_p$), the series collapses directly into the standard scalar exponential function:
+
+$$
+\sum_{n=0}^{\infty} \frac{(-\kappa_p \Delta t_k)^n}{n!} = e^{-\kappa_p \Delta t_k}
+$$
+
+For the bottom-left off-diagonal element governing the cumulative integral state ($I_p$), the series expansion operates exclusively for $n \ge 1$ (as the $n=0$ identity matrix $\mathbf{I}$ has a zero in this position). By extracting a factor of $-1/\kappa_p$ from the terms, we reconstruct the exact exponential series:
+
+$$
+\sum_{n=1}^{\infty} \frac{\Delta t_k^n}{n!} (-\kappa_p)^{n-1} = -\frac{1}{\kappa_p} \sum_{n=1}^{\infty} \frac{(-\kappa_p \Delta t_k)^n}{n!} 
+$$
+
+Recognizing that the right-side summation is simply the complete Taylor series for $e^{-\kappa_p \Delta t_k}$ minus the $n=0$ term (which equals $1$), the expression resolves analytically to the exact running integral:
+
+$$
+-\frac{1}{\kappa_p} \left( e^{-\kappa_p \Delta t_k} - 1 \right) = \frac{1 - e^{-\kappa_p \Delta t_k}}{\kappa_p}
+$$
+
+Because the parasympathetic and sympathetic pathways are mathematically decoupled within the continuous system matrix (i.e., they do not cross-talk), the exact same algebraic reduction applies symmetrically to the sympathetic parameters. The instantaneous sympathetic state at position (2,2) evaluates independently to:
+
+$$
+\sum_{n=0}^{\infty} \frac{(-\kappa_s \Delta t_k)^n}{n!} = e^{-\kappa_s \Delta t_k}
+$$
+
+Correspondingly, its cumulative integral state at position (4,2) resolves to:
+
+$$
+-\frac{1}{\kappa_s} \left( e^{-\kappa_s \Delta t_k} - 1 \right) = \frac{1 - e^{-\kappa_s \Delta t_k}}{\kappa_s}
+$$
+
+Finally, because the entire right half of the block matrix $\mathbf{A}^n$ is identically zero for all $n \ge 1$, the integral preservation states at positions (3,3) and (4,4) are populated solely by the $n=0$ identity matrix $\mathbf{I}$, thereby remaining exactly $1$. 
+
+Assembling these independent, exact scalar solutions back into the full $4 \times 4$ geometry yields the final closed-form transition matrix $\mathbf{F}_k$. This derivation explicitly proves that the accumulation of both the parasympathetic and sympathetic autonomic integral states is evaluated natively across continuous time, entirely bypassing the discretization errors inherent to numerical integration schemes (e.g., Euler or Runge-Kutta).

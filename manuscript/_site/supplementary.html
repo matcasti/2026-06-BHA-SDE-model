@@ -4238,7 +4238,10 @@ window.Quarto = {
   </ul></li>
   </ul></li>
   <li><a href="#sec-heteroskedasticity" id="toc-sec-heteroskedasticity" class="nav-link" data-scroll-target="#sec-heteroskedasticity"><span class="header-section-number">4</span> Emergent macroscopic heteroskedasticity via first-passage time</a></li>
-  <li><a href="#sec-matrix-exponential" id="toc-sec-matrix-exponential" class="nav-link" data-scroll-target="#sec-matrix-exponential"><span class="header-section-number">5</span> Continuous-discrete state-space formulation via matrix exponential</a></li>
+  <li><a href="#sec-matrix-exponential" id="toc-sec-matrix-exponential" class="nav-link" data-scroll-target="#sec-matrix-exponential"><span class="header-section-number">5</span> Continuous-discrete state-space formulation via matrix exponential</a>
+  <ul class="collapse">
+  <li><a href="#explicit-derivation-of-the-exact-transition-matrix" id="toc-explicit-derivation-of-the-exact-transition-matrix" class="nav-link" data-scroll-target="#explicit-derivation-of-the-exact-transition-matrix"><span class="header-section-number">5.1</span> Explicit derivation of the exact transition matrix</a></li>
+  </ul></li>
   </ul>
 </nav>
     </div>
@@ -4404,7 +4407,8 @@ u_k = \Phi(\epsilon_k) \sim \mathcal{U}(0,1)
 <h1 data-number="5"><span class="header-section-number">5</span> Continuous-discrete state-space formulation via matrix exponential</h1>
 <p>A core operational advantage of the SPARK framework is its ability to evaluate continuous-time kinetics across variable discrete sampling intervals without relying on Euler-Maruyama approximations. This is achieved by defining the autonomic state vector such that it captures both the instantaneous neural drives and their accumulated path integrals between heartbeats.</p>
 <p>Let the continuous-time autonomic state vector be <span class="math inline">\(\mathbf{X}(t) = [x_p(t), x_s(t), I_p(t), I_s(t)]^\intercal\)</span>, where <span class="math inline">\(x_p(t)\)</span> and <span class="math inline">\(x_s(t)\)</span> represent the instantaneous parasympathetic and sympathetic Ornstein-Uhlenbeck processes, and <span class="math inline">\(I_p(t)\)</span> and <span class="math inline">\(I_s(t)\)</span> represent their exact running integrals.</p>
-<p>The continuous-time system dynamics are governed by the linear SDE: <span class="math display">\[
+<p>The continuous-time system dynamics are governed by the linear SDE:</p>
+<p><span class="math display">\[
 d\mathbf{X}(t) = \mathbf{A} \mathbf{X}(t) dt + \mathbf{G} d\mathbf{W}(t)
 \]</span></p>
 <p>where <span class="math inline">\(\mathbf{A}\)</span> is the continuous system evolution matrix defined by the kinetic clearance rates (<span class="math inline">\(\kappa_p, \kappa_s\)</span>):</p>
@@ -4426,8 +4430,46 @@ e^{-\kappa_p \Delta t_k} &amp; 0 &amp; 0 &amp; 0 \\
 \end{bmatrix}
 \]</span></p>
 <p>This exact transition matrix <span class="math inline">\(\mathbf{F}_k\)</span> allows the Kalman filter to propagate the state vector continuously across non-uniform biological time. Upon the registration of a macroscopic interval (the phase-domain boundary crossing), the integral states <span class="math inline">\(I_p\)</span> and <span class="math inline">\(I_s\)</span> are projected into the observation equation, and subsequently structurally reset to zero. This mathematical reset perfectly mirrors the biophysical depolarization and refractory resetting of the sinoatrial node, preserving absolute continuous-time fidelity without accumulation of discrete-time discretization errors.</p>
+<section id="explicit-derivation-of-the-exact-transition-matrix" class="level2" data-number="5.1">
+<h2 data-number="5.1" class="anchored" data-anchor-id="explicit-derivation-of-the-exact-transition-matrix"><span class="header-section-number">5.1</span> Explicit derivation of the exact transition matrix</h2>
+<p>To demonstrate the structural origin of this transition matrix, we evaluate <span class="math inline">\(\exp(\mathbf{A} \Delta t_k)\)</span> using the fundamental Taylor series definition of the matrix exponential:</p>
+<p><span class="math display">\[
+\exp(\mathbf{A} \Delta t_k) = \sum_{n=0}^{\infty} \frac{(\mathbf{A} \Delta t_k)^n}{n!} = \mathbf{I} + \mathbf{A} \Delta t_k + \frac{1}{2!} \mathbf{A}^2 \Delta t_k^2 + \dots
+\]</span></p>
+<p>Given the specific block structure of the continuous system matrix <span class="math inline">\(\mathbf{A}\)</span>, evaluating its higher-order matrix powers reveals a strict deterministic pattern. For any integer <span class="math inline">\(n \ge 1\)</span>:</p>
+<p><span class="math display">\[
+\mathbf{A}^n = \begin{bmatrix}
+(-\kappa_p)^n &amp; 0 &amp; 0 &amp; 0 \\
+0 &amp; (-\kappa_s)^n &amp; 0 &amp; 0 \\
+(-\kappa_p)^{n-1} &amp; 0 &amp; 0 &amp; 0 \\
+0 &amp; (-\kappa_s)^{n-1} &amp; 0 &amp; 0
+\end{bmatrix}
+\]</span></p>
+<p>Substituting this matrix pattern back into the infinite series expansion allows us to evaluate the discrete elements of the transition matrix independently. For the top-left diagonal element governing the instantaneous parasympathetic state (<span class="math inline">\(x_p\)</span>), the series collapses directly into the standard scalar exponential function:</p>
+<p><span class="math display">\[
+\sum_{n=0}^{\infty} \frac{(-\kappa_p \Delta t_k)^n}{n!} = e^{-\kappa_p \Delta t_k}
+\]</span></p>
+<p>For the bottom-left off-diagonal element governing the cumulative integral state (<span class="math inline">\(I_p\)</span>), the series expansion operates exclusively for <span class="math inline">\(n \ge 1\)</span> (as the <span class="math inline">\(n=0\)</span> identity matrix <span class="math inline">\(\mathbf{I}\)</span> has a zero in this position). By extracting a factor of <span class="math inline">\(-1/\kappa_p\)</span> from the terms, we reconstruct the exact exponential series:</p>
+<p><span class="math display">\[
+\sum_{n=1}^{\infty} \frac{\Delta t_k^n}{n!} (-\kappa_p)^{n-1} = -\frac{1}{\kappa_p} \sum_{n=1}^{\infty} \frac{(-\kappa_p \Delta t_k)^n}{n!}
+\]</span></p>
+<p>Recognizing that the right-side summation is simply the complete Taylor series for <span class="math inline">\(e^{-\kappa_p \Delta t_k}\)</span> minus the <span class="math inline">\(n=0\)</span> term (which equals <span class="math inline">\(1\)</span>), the expression resolves analytically to the exact running integral:</p>
+<p><span class="math display">\[
+-\frac{1}{\kappa_p} \left( e^{-\kappa_p \Delta t_k} - 1 \right) = \frac{1 - e^{-\kappa_p \Delta t_k}}{\kappa_p}
+\]</span></p>
+<p>Because the parasympathetic and sympathetic pathways are mathematically decoupled within the continuous system matrix (i.e., they do not cross-talk), the exact same algebraic reduction applies symmetrically to the sympathetic parameters. The instantaneous sympathetic state at position (2,2) evaluates independently to:</p>
+<p><span class="math display">\[
+\sum_{n=0}^{\infty} \frac{(-\kappa_s \Delta t_k)^n}{n!} = e^{-\kappa_s \Delta t_k}
+\]</span></p>
+<p>Correspondingly, its cumulative integral state at position (4,2) resolves to:</p>
+<p><span class="math display">\[
+-\frac{1}{\kappa_s} \left( e^{-\kappa_s \Delta t_k} - 1 \right) = \frac{1 - e^{-\kappa_s \Delta t_k}}{\kappa_s}
+\]</span></p>
+<p>Finally, because the entire right half of the block matrix <span class="math inline">\(\mathbf{A}^n\)</span> is identically zero for all <span class="math inline">\(n \ge 1\)</span>, the integral preservation states at positions (3,3) and (4,4) are populated solely by the <span class="math inline">\(n=0\)</span> identity matrix <span class="math inline">\(\mathbf{I}\)</span>, thereby remaining exactly <span class="math inline">\(1\)</span>.</p>
+<p>Assembling these independent, exact scalar solutions back into the full <span class="math inline">\(4 \times 4\)</span> geometry yields the final closed-form transition matrix <span class="math inline">\(\mathbf{F}_k\)</span>. This derivation explicitly proves that the accumulation of both the parasympathetic and sympathetic autonomic integral states is evaluated natively across continuous time, entirely bypassing the discretization errors inherent to numerical integration schemes (e.g., Euler or Runge-Kutta).</p>
 
 
+</section>
 </section>
 
 </main> <!-- /main -->
