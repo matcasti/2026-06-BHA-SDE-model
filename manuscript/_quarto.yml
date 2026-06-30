@@ -30,6 +30,8 @@ format:
       light: Yeti
       dark: Cyborg
     toc: true
+  pdf:
+    toc: true
 
 bibliography: citations.bib
 number-sections: true

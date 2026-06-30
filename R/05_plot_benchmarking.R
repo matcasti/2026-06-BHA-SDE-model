@@ -80,7 +80,6 @@ df_wavelet <- data.frame(
 # ==============================================================================
 # 4. GENERATE BENCHMARKING PANELS
 # ==============================================================================
-cat("Plotting comparative panels...\n")
 
 # --- PANEL A: Proposed Generative SDE Architecture ---
 pA <- ggplot(df_sde, aes(x = Time_Min)) +
@@ -95,13 +94,14 @@ pA <- ggplot(df_sde, aes(x = Time_Min)) +
   geom_line(aes(y = X_p, color = "Parasympathetic"), linewidth = 0.8) +
   geom_line(aes(y = X_s, color = "Sympathetic"), linewidth = 0.8) +
   scale_color_manual(values = color_branches) +
-  scale_y_continuous(expand = c(0,0,0,0.2)) +
+  scale_y_continuous(expand = c(0,0,0.5,0)) +
   scale_x_continuous(expand = c(0,0), limits = c(zoom_start, zoom_end)) +
   labs(title = "A. Proposed Continuous-Time SDE Framework",
        subtitle = "Instantaneous, beat-to-beat tracking of latent autonomic drivers",
        y = "State Amplitude (Hz)", x = "") +
   theme_classic() +
-  theme(legend.position = "bttom", legend.title = element_blank(),
+  theme(legend.position = c(0.8,0.8),
+        legend.title = element_blank(),
         plot.title = element_text(face = "bold"),
         axis.text.x = element_blank())
 
@@ -111,20 +111,20 @@ pB <- ggplot(df_wavelet, aes(x = Time_Min)) +
   # LF support requires wider windows, blending pre- and post-tilt spectra
   annotate("rect", xmin = tilt_time_min, xmax = tilt_time_min + 3,
            ymin = -Inf, ymax = Inf, fill = "darkorange", alpha = 0.1) +
-  annotate("text", x = tilt_time_min + 0.3, y = 0.4, hjust = 0,
-           label = "Heisenberg Resolution\nSmear Zone") +
+  annotate("text", x = tilt_time_min + 0.3, y = 0.3, hjust = 0,
+           label = "Heisenberg\nResolution\nSmear Zone") +
 
   geom_vline(xintercept = tilt_time_min, color = "black", linewidth = 0.8) +
   geom_line(aes(y = HF, color = "HF Power (Wavelet)"), linewidth = 1) +
   geom_line(aes(y = LF, color = "LF Power (Wavelet)"), linewidth = 1) +
   scale_color_manual(values = color_wavelet) +
-  scale_y_continuous(expand = c(0,0,0,0.3)) +
+  scale_y_continuous(expand = c(0,0,0.5,0)) +
   scale_x_continuous(expand = c(0,0), limits = c(zoom_start, zoom_end)) +
   labs(title = "B. Continuous Morlet Wavelet Transform (CWT Moving PSD)",
        subtitle = "Bidirectional temporal blurring and loss of high-frequency precision during sharp changes",
        y = "Normalized Spectral Power", x = "Time (Minutes)") +
   theme_classic() +
-  theme(legend.position = "bottom",
+  theme(legend.position = c(0.8,0.8),
         legend.title = element_blank(),
         plot.title = element_text(face = "bold"))
 
@@ -136,4 +136,4 @@ pB <- ggplot(df_wavelet, aes(x = Time_Min)) +
 fig_benchmark <- (pA / pB)
 
 ggsave("manuscript/figures/fig4_benchmarking_comparison.png", plot = fig_benchmark,
-       width = 160, height = 160, dpi = 300, scale = 15, units = "px")
+       width = 180, height = 180, dpi = 300, scale = 15, units = "px")

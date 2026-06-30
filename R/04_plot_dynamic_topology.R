@@ -70,12 +70,11 @@ generate_topology_figure <- function(fit_obj, protocol_name = "Protocol", n = NU
     scale_color_manual(values = c("Observed RR" = "gray60", "Filtered RR" = "darkred")) +
     scale_x_continuous(expand = c(0,0)) +
     labs(title = "I. Phase-Domain Filtering",
-         subtitle = "Observed (gray) and Filtered (red)",
          y = "RR Interval (s)", x = "Time (minutes)") +
     theme_classic() +
     theme(legend.title = element_blank(),
-          legend.position = "none",
-          plot.title = element_text(face = "bold"))
+          legend.position = c(0.88,0.2),
+          legend.background = element_blank())
 
   # ----------------------------------------------------------------------------
   # PANEL B: NATIVE AUTONOMIC DRIVERS WITH 95% CI
@@ -96,14 +95,14 @@ generate_topology_figure <- function(fit_obj, protocol_name = "Protocol", n = NU
     geom_line() +
     scale_color_manual(values = color_branches) +
     scale_fill_manual(values = color_branches) +
+    scale_y_continuous(expand = c(0,0,0.1,0)) +
     scale_x_continuous(expand = c(0,0)) +
     labs(title = "II. Latent Autonomic Drivers",
-         subtitle = "Sympathetic (red) and Parasympathetic (blue)",
          y = "Amplitude (Hz)", x = "Time (minutes)") +
     theme_classic() +
     theme(legend.title = element_blank(),
-          legend.position = "none",
-          plot.title = element_text(face = "bold"))
+          legend.position = c(0.18,0.85),
+          legend.background = element_blank())
 
   # ----------------------------------------------------------------------------
   # PANEL C: DYNAMIC ENERGY MAP FRAMING (Topology)
@@ -139,64 +138,21 @@ generate_topology_figure <- function(fit_obj, protocol_name = "Protocol", n = NU
     scale_color_viridis_c(option = "plasma", guide = "none") +
     scale_x_continuous(expand = c(0,0)) +
     scale_y_continuous(expand = c(0,0)) +
-    labs(title = "IV. Phase Space Topology & Trajectory",
-         subtitle = "Exact Potential Autonomic Energy Basin",
+    labs(title = "III. Phase Space Topology & Trajectory",
          x = expression("Parasympathetic Drive " * (X[p])),
          y = expression("Sympathetic Drive " * (X[s]))) +
     theme_classic() +
-    theme(legend.position = "none",
-          plot.title = element_text(face = "bold"))
-
-  # ----------------------------------------------------------------------------
-  # PANEL D: EMPIRICAL VS RECONSTRUCTED PSD
-  # ----------------------------------------------------------------------------
-  fs <- 4
-  t_grid <- seq(min(time_cum), max(time_cum), by = 1/fs)
-
-  hr_obs <- 1 / dy
-  hr_obs_interp <- spline(time_cum, hr_obs, xout = t_grid)$y
-  hr_obs_ts <- ts(hr_obs_interp - mean(hr_obs_interp), frequency = fs)
-  spec_obs <- spectrum(hr_obs_ts, spans = c(3, 5), plot = FALSE)
-
-  hr_filt <- 1 / implied_rr
-  hr_filt_interp <- spline(time_cum, hr_filt, xout = t_grid)$y
-  hr_filt_ts <- ts(hr_filt_interp - mean(hr_filt_interp), frequency = fs)
-  spec_filt <- spectrum(hr_filt_ts, spans = c(3, 5), plot = FALSE)
-
-  df_psd <- data.frame(
-    Frequency = rep(spec_obs$freq, 2),
-    Power     = c(spec_obs$spec, spec_filt$spec),
-    Component = factor(rep(c("Observed PSD", "Filtered PSD"), each = length(spec_obs$freq)),
-                       levels = c("Observed PSD", "Filtered PSD"))
-  )
-
-  df_psd <- df_psd[df_psd$Frequency >= 0.01 & df_psd$Frequency <= 0.50, ]
-  y_floor <- min(df_psd$Power, na.rm = TRUE) * 0.5
-
-  pD <- ggplot(df_psd, aes(x = Frequency, y = Power, color = Component)) +
-    annotate("rect", xmin = 0.04, xmax = 0.15, ymin = y_floor, ymax = Inf, fill = "gray50", alpha = 0.15) +
-    annotate("rect", xmin = 0.15, xmax = 0.40, ymin = y_floor, ymax = Inf, fill = "gray50", alpha = 0.08) +
-    geom_line(linewidth = 0.6) +
-    scale_color_manual(values = c("Observed PSD" = "gray60", "Filtered PSD" = "darkred")) +
-    scale_x_continuous(expand = c(0,0), breaks = c(0.04, 0.15, 0.40)) +
-    scale_y_continuous(transform = "log10", labels = scales::label_log(), expand = c(0,0)) +
-    labs(title = "III. Spectral Conservation",
-         subtitle = "Observed (gray) vs Filtered PSD (red)",
-         x = "Frequency (Hz)", y = "Power (log scale)") +
-    theme_classic() +
-    theme(legend.position = "none",
-          legend.title = element_blank(),
-          plot.title = element_text(face = "bold"))
+    theme(legend.position = "none")
 
   # ----------------------------------------------------------------------------
   # ASSEMBLE COMPOSITE (Patchwork)
   # ----------------------------------------------------------------------------
   # Left column: A, B, D stacked. Right column: C spanning the height.
-  composite <- (pA / pB / pD / pC) +
-    plot_layout(heights = c(2,2,1,3)) +
+  composite <- (pA / pB / pC) +
+    plot_layout(heights = c(2,2,3)) +
     plot_annotation(
       title = protocol_name,
-      theme = theme(plot.title = element_text(size = 16, face = "bold"))
+      theme = theme(plot.title = element_text(face = "bold"))
     )
 
   return(composite)
@@ -219,4 +175,4 @@ fig_combined <- wrap_elements(fig_tilt) | wrap_elements(fig_exercise)
 
 ggsave(filename = "manuscript/figures/fig3_dynamic_topology_comparison.png",
        plot = fig_combined,
-       width = 200, height = 300, dpi = 300, scale = 15, units = "px")
+       width = 200, height = 220, dpi = 300, scale = 15, units = "px")

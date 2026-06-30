@@ -9,7 +9,7 @@
 <meta name="author" content="Matías Castillo-Aguilar">
 <meta name="author" content="Noah Beelders">
 <meta name="author" content="Cristian Núñez-Espinosa">
-<meta name="dcterms.date" content="2026-06-29">
+<meta name="dcterms.date" content="2026-06-30">
 
 <title>Supplementary material</title>
 <style>
@@ -4153,7 +4153,6 @@ window.Quarto = {
   <div class="quarto-title-banner page-columns page-full">
     <div class="quarto-title column-body">
       <h1 class="title">Supplementary material</h1>
-            <p class="subtitle lead">SPARK: Stochastic Phase-Domain Autonomic Reconstruction Kinetics for Cardiac Autonomic Neuroscience</p>
           </div>
 
     
@@ -4195,7 +4194,7 @@ window.Quarto = {
                 <div>
             <div class="quarto-title-meta-heading">Published</div>
             <div class="quarto-title-meta-contents">
-              <p class="date">June 29, 2026</p>
+              <p class="date">June 30, 2026</p>
             </div>
           </div>
           
@@ -4203,7 +4202,7 @@ window.Quarto = {
               </div>
       </div>
       <div class="quarto-title-meta-column-end quarto-other-formats-target">
-      </div>
+      <div class="quarto-alternate-formats"><div class="quarto-title-meta-heading">Other Formats</div><div class="quarto-title-meta-contents"><p><a href="supplementary.pdf"><i class="bi bi-file-pdf"></i>PDF</a></p></div></div></div>
     </div>
 
 
@@ -4230,14 +4229,16 @@ window.Quarto = {
   </ul></li>
   <li><a href="#unconstrained-optimization-space" id="toc-unconstrained-optimization-space" class="nav-link" data-scroll-target="#unconstrained-optimization-space"><span class="header-section-number">2.4</span> Unconstrained optimization space</a></li>
   </ul></li>
-  <li><a href="#sec-diagnostics" id="toc-sec-diagnostics" class="nav-link" data-scroll-target="#sec-diagnostics"><span class="header-section-number">3</span> Goodness-of-Fit Diagnostic in Diffusion-Based Phase-Domain Architectures</a>
+  <li><a href="#sec-diagnostics" id="toc-sec-diagnostics" class="nav-link" data-scroll-target="#sec-diagnostics"><span class="header-section-number">3</span> Goodness-of-fit diagnostic in diffusion-based phase-domain architectures</a>
   <ul class="collapse">
-  <li><a href="#the-classical-poisson-arrival-formulation" id="toc-the-classical-poisson-arrival-formulation" class="nav-link" data-scroll-target="#the-classical-poisson-arrival-formulation"><span class="header-section-number">3.1</span> The Classical Poisson Arrival Formulation</a>
+  <li><a href="#the-classical-poisson-arrival-formulation" id="toc-the-classical-poisson-arrival-formulation" class="nav-link" data-scroll-target="#the-classical-poisson-arrival-formulation"><span class="header-section-number">3.1</span> The classical poisson arrival formulation</a>
   <ul class="collapse">
-  <li><a href="#the-phase-domain-diffusion-formulation-spark" id="toc-the-phase-domain-diffusion-formulation-spark" class="nav-link" data-scroll-target="#the-phase-domain-diffusion-formulation-spark"><span class="header-section-number">3.1.1</span> The Phase-Domain Diffusion Formulation (SPARK)</a></li>
-  <li><a href="#isomorphic-equivalence-of-the-trt-principle" id="toc-isomorphic-equivalence-of-the-trt-principle" class="nav-link" data-scroll-target="#isomorphic-equivalence-of-the-trt-principle"><span class="header-section-number">3.1.2</span> Isomorphic Equivalence of the TRT Principle</a></li>
+  <li><a href="#the-phase-domain-diffusion-formulation" id="toc-the-phase-domain-diffusion-formulation" class="nav-link" data-scroll-target="#the-phase-domain-diffusion-formulation"><span class="header-section-number">3.1.1</span> The phase-domain diffusion formulation</a></li>
+  <li><a href="#isomorphic-equivalence-of-the-time-rescaling-theorem-principle" id="toc-isomorphic-equivalence-of-the-time-rescaling-theorem-principle" class="nav-link" data-scroll-target="#isomorphic-equivalence-of-the-time-rescaling-theorem-principle"><span class="header-section-number">3.1.2</span> Isomorphic equivalence of the time-rescaling theorem principle</a></li>
   </ul></li>
   </ul></li>
+  <li><a href="#sec-heteroskedasticity" id="toc-sec-heteroskedasticity" class="nav-link" data-scroll-target="#sec-heteroskedasticity"><span class="header-section-number">4</span> Emergent macroscopic heteroskedasticity via first-passage time</a></li>
+  <li><a href="#sec-matrix-exponential" id="toc-sec-matrix-exponential" class="nav-link" data-scroll-target="#sec-matrix-exponential"><span class="header-section-number">5</span> Continuous-discrete state-space formulation via matrix exponential</a></li>
   </ul>
 </nav>
     </div>
@@ -4341,10 +4342,10 @@ P_{k|k} = (I - K_k H) P_{k|k-1} (I - K_k H)^T + K_k R_k K_k^T
 </section>
 </section>
 <section id="sec-diagnostics" class="level1" data-number="3">
-<h1 data-number="3"><span class="header-section-number">3</span> Goodness-of-Fit Diagnostic in Diffusion-Based Phase-Domain Architectures</h1>
-<p>The validation of point-process models using the Kolmogorov-Smirnov (KS) goodness-of-fit test relies heavily on the time-rescaling theorem (TRT). However, it is mathematically necessary to distinguish between the stochastic assumptions of classical TRT (which assumes probabilistic event arrivals) and the SPARK framework (which models deterministic thresholds over stochastic diffusion paths). This section formally demonstrates that while the underlying generative noise distributions differ, the probability integral transform utilized in both frameworks ensures exact isomorphic equivalence for goodness-of-fit evaluation.</p>
+<h1 data-number="3"><span class="header-section-number">3</span> Goodness-of-fit diagnostic in diffusion-based phase-domain architectures</h1>
+<p>The validation of point-process models using the Kolmogorov-Smirnov (KS) goodness-of-fit test relies heavily on the time-rescaling theorem. However, it is mathematically necessary to distinguish between the stochastic assumptions of classical time-rescaling theorem (which assumes probabilistic event arrivals) and the SPARK framework (which models deterministic thresholds over stochastic diffusion paths). This section formally demonstrates that while the underlying generative noise distributions differ, the probability integral transform utilized in both frameworks ensures exact isomorphic equivalence for goodness-of-fit evaluation.</p>
 <section id="the-classical-poisson-arrival-formulation" class="level2" data-number="3.1">
-<h2 data-number="3.1" class="anchored" data-anchor-id="the-classical-poisson-arrival-formulation"><span class="header-section-number">3.1</span> The Classical Poisson Arrival Formulation</h2>
+<h2 data-number="3.1" class="anchored" data-anchor-id="the-classical-poisson-arrival-formulation"><span class="header-section-number">3.1</span> The classical poisson arrival formulation</h2>
 <p>In classical point-process statistics, an event (heartbeat) is modeled as a stochastic arrival governed by a conditional intensity function <span class="math inline">\(\lambda(t)\)</span>. Under this assumption, the generation of events follows an inhomogeneous Poisson process.</p>
 <p>The classical time-rescaling theorem states that if the continuous intensity function <span class="math inline">\(\lambda(t)\)</span> is integrated over the exact observed inter-beat interval <span class="math inline">\([t_{k-1}, t_k]\)</span>, the resulting integrated intensity <span class="math inline">\(\Lambda_k\)</span> transforms the uneven temporal sequence into a homogeneous Poisson process with a unit rate:</p>
 <p><span class="math display">\[
@@ -4355,8 +4356,8 @@ P_{k|k} = (I - K_k H) P_{k|k-1} (I - K_k H)^T + K_k R_k K_k^T
 u_k = 1 - \exp(-\Lambda_k) \sim \mathcal{U}(0,1)
 \]</span></p>
 <p>This <span class="math inline">\(\mathcal{U}(0,1)\)</span> sequence is then evaluated geometrically using the KS test.</p>
-<section id="the-phase-domain-diffusion-formulation-spark" class="level3" data-number="3.1.1">
-<h3 data-number="3.1.1" class="anchored" data-anchor-id="the-phase-domain-diffusion-formulation-spark"><span class="header-section-number">3.1.1</span> The Phase-Domain Diffusion Formulation (SPARK)</h3>
+<section id="the-phase-domain-diffusion-formulation" class="level3" data-number="3.1.1">
+<h3 data-number="3.1.1" class="anchored" data-anchor-id="the-phase-domain-diffusion-formulation"><span class="header-section-number">3.1.1</span> The phase-domain diffusion formulation</h3>
 <p>In contrast, the SPARK framework abandons the Poisson arrival assumption. Cardiac pacing is modeled explicitly as a continuous-time Integrate-and-Fire (IF) diffusion process. Here, the event is triggered deterministically when the cellular membrane potential reaches a threshold of <span class="math inline">\(1\)</span>. The stochasticity arises exclusively from the continuous Brownian motion (Wiener process, <span class="math inline">\(dW_t\)</span>) of the biological environment during the interval.</p>
 <p>The governing stochastic differential equation over the observed interval is defined as:</p>
 <p><span class="math display">\[
@@ -4375,21 +4376,58 @@ v_k = 1 - \hat{\phi}_{k|k-1} = \int_{t_{k-1}}^{t_k} \sigma dW_t
 v_k \sim \mathcal{N}(0, S_k)
 \]</span></p>
 </section>
-<section id="isomorphic-equivalence-of-the-trt-principle" class="level3" data-number="3.1.2">
-<h3 data-number="3.1.2" class="anchored" data-anchor-id="isomorphic-equivalence-of-the-trt-principle"><span class="header-section-number">3.1.2</span> Isomorphic Equivalence of the TRT Principle</h3>
+<section id="isomorphic-equivalence-of-the-time-rescaling-theorem-principle" class="level3" data-number="3.1.2">
+<h3 data-number="3.1.2" class="anchored" data-anchor-id="isomorphic-equivalence-of-the-time-rescaling-theorem-principle"><span class="header-section-number">3.1.2</span> Isomorphic equivalence of the time-rescaling theorem principle</h3>
 <p>To execute the goodness-of-fit evaluation under the diffusion paradigm, the innovation is standardized to extract the pure standard normal generative noise:</p>
 <p><span class="math display">\[
 \epsilon_k = \frac{v_k}{\sqrt{S_k}} \sim \mathcal{N}(0,1)
 \]</span></p>
-<p>We then apply the exact same mathematical mechanism utilized in the classical TRT: the probability integral transform. However, because the generative noise of the SPARK diffusion model is standard normal rather than exponential, the transformation requires the standard normal CDF, <span class="math inline">\(\Phi(\cdot)\)</span>:</p>
+<p>We then apply the exact same mathematical mechanism utilized in the classical time-rescaling theorem: the probability integral transform. However, because the generative noise of the SPARK diffusion model is standard normal rather than exponential, the transformation requires the standard normal CDF, <span class="math inline">\(\Phi(\cdot)\)</span>:</p>
 <p><span class="math display">\[
 u_k = \Phi(\epsilon_k) \sim \mathcal{U}(0,1)
 \]</span></p>
 <p>Although the SPARK architecture operates under diffusion rather than Poisson assumptions, the fundamental mechanism of the time-rescaling theorem, isolating the true generative noise and mapping it to a uniform distribution via its exact probability integral transform, remains mathematically exact. Consequently, testing the sequence <span class="math inline">\(u_k = \Phi(\epsilon_k)\)</span> for uniformity via the Kolmogorov-Smirnov distance constitutes a theoretically rigorous and exact execution of the time-rescaling principle for first-passage time point-process models.</p>
-
-
 </section>
 </section>
+</section>
+<section id="sec-heteroskedasticity" class="level1" data-number="4">
+<h1 data-number="4"><span class="header-section-number">4</span> Emergent macroscopic heteroskedasticity via first-passage time</h1>
+<p>A well-documented phenomenon in cardiorespiratory physiology is vagal gating (Respiratory Sinus Arrhythmia), wherein high parasympathetic tone dynamically amplifies the macroscopic variance of the observed interval sequence. Standard state-space architectures struggle to capture this without introducing mathematically intractable, state-dependent observation noise matrices (<span class="math inline">\(R_k \propto X_{PNS}\)</span>).</p>
+<p>The SPARK framework resolves this natively through its isomorphic coordinate mapping. Within the continuous phase domain, the system is modeled with strictly constant, homoskedastic diffusion (<span class="math inline">\(\sigma dW_t\)</span>), ensuring exact tractability within the linear-Gaussian generalized least squares architecture. However, the observable discrete heartbeat <span class="math inline">\(\tau_k\)</span> is the first-passage time of this process reaching the absorbing boundary <span class="math inline">\(a = 1.0\)</span>.</p>
+<p>For a Brownian motion with local net drift <span class="math inline">\(\nu_k\)</span> and constant volatility <span class="math inline">\(\sigma\)</span>, the first-passage time follows an Inverse Gaussian distribution. While the expected macroscopic interval is <span class="math inline">\(\mathbb{E}[\tau_k] = 1.0 / \nu_k\)</span>, the exact analytical variance of the observed interval is strictly non-linear with respect to the drift:</p>
+<p><span class="math display">\[
+\text{Var}(\tau_k) = \frac{\sigma^2}{\nu_k^3}
+\]</span></p>
+<p>Because the macroscopic variance is inversely proportional to the cube of the drift (<span class="math inline">\(\nu_k^3\)</span>), the framework structurally guarantees heteroskedasticity in the time domain. When parasympathetic tone increases, the instantaneous net drift <span class="math inline">\(\nu_k\)</span> is suppressed. Even with constant underlying system noise (<span class="math inline">\(\sigma^2\)</span>), this suppression induces an exponential expansion in <span class="math inline">\(\text{Var}(\tau_k)\)</span>, perfectly mimicking biological vagal gating. Conversely, parasympathetic withdrawal increases <span class="math inline">\(\nu_k\)</span>, driving the macroscopic variance toward zero and recovering the rigid, low-variance pacing characteristic of pure sympathetic drive.</p>
+</section>
+<section id="sec-matrix-exponential" class="level1" data-number="5">
+<h1 data-number="5"><span class="header-section-number">5</span> Continuous-discrete state-space formulation via matrix exponential</h1>
+<p>A core operational advantage of the SPARK framework is its ability to evaluate continuous-time kinetics across variable discrete sampling intervals without relying on Euler-Maruyama approximations. This is achieved by defining the autonomic state vector such that it captures both the instantaneous neural drives and their accumulated path integrals between heartbeats.</p>
+<p>Let the continuous-time autonomic state vector be <span class="math inline">\(\mathbf{X}(t) = [x_p(t), x_s(t), I_p(t), I_s(t)]^\intercal\)</span>, where <span class="math inline">\(x_p(t)\)</span> and <span class="math inline">\(x_s(t)\)</span> represent the instantaneous parasympathetic and sympathetic Ornstein-Uhlenbeck processes, and <span class="math inline">\(I_p(t)\)</span> and <span class="math inline">\(I_s(t)\)</span> represent their exact running integrals.</p>
+<p>The continuous-time system dynamics are governed by the linear SDE: <span class="math display">\[
+d\mathbf{X}(t) = \mathbf{A} \mathbf{X}(t) dt + \mathbf{G} d\mathbf{W}(t)
+\]</span></p>
+<p>where <span class="math inline">\(\mathbf{A}\)</span> is the continuous system evolution matrix defined by the kinetic clearance rates (<span class="math inline">\(\kappa_p, \kappa_s\)</span>):</p>
+<p><span class="math display">\[
+\mathbf{A} = \begin{bmatrix}
+-\kappa_p &amp; 0 &amp; 0 &amp; 0 \\
+0 &amp; -\kappa_s &amp; 0 &amp; 0 \\
+1 &amp; 0 &amp; 0 &amp; 0 \\
+0 &amp; 1 &amp; 0 &amp; 0
+\end{bmatrix}
+\]</span></p>
+<p>Because this system is strictly linear time-invariant between observations, the exact discrete-time transition over any arbitrary stochastic inter-beat interval <span class="math inline">\(\Delta t_k\)</span> is solved analytically via the matrix exponential:</p>
+<p><span class="math display">\[
+\mathbf{F}_k = \exp(\mathbf{A} \Delta t_k) = \begin{bmatrix}
+e^{-\kappa_p \Delta t_k} &amp; 0 &amp; 0 &amp; 0 \\
+0 &amp; e^{-\kappa_s \Delta t_k} &amp; 0 &amp; 0 \\
+\frac{1 - e^{-\kappa_p \Delta t_k}}{\kappa_p} &amp; 0 &amp; 1 &amp; 0 \\
+0 &amp; \frac{1 - e^{-\kappa_s \Delta t_k}}{\kappa_s} &amp; 0 &amp; 1
+\end{bmatrix}
+\]</span></p>
+<p>This exact transition matrix <span class="math inline">\(\mathbf{F}_k\)</span> allows the Kalman filter to propagate the state vector continuously across non-uniform biological time. Upon the registration of a macroscopic interval (the phase-domain boundary crossing), the integral states <span class="math inline">\(I_p\)</span> and <span class="math inline">\(I_s\)</span> are projected into the observation equation, and subsequently structurally reset to zero. This mathematical reset perfectly mirrors the biophysical depolarization and refractory resetting of the sinoatrial node, preserving absolute continuous-time fidelity without accumulation of discrete-time discretization errors.</p>
+
+
 </section>
 
 </main> <!-- /main -->
