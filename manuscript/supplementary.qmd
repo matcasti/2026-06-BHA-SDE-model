@@ -48,7 +48,7 @@ $$
 P_{band} = \sum_{f \in band} \bar{W}(f) df
 $$
 
-where $\bar{W}(f)$ is the global wavelet power at frequency $f$, and $df$ is the absolute difference between adjacent frequency scales. Because the continuous model utilizes an orthogonal parameterization that structurally disentangles the amplitude of the biological drive from its memory, the steady-state variance ratio of the parasympathetic to sympathetic branch, $V_p$, is fixed directly to the empirical wavelet energy quotient:
+where $\bar{W}(f)$ is the global wavelet power at frequency $f$, and $df$ is the absolute difference between adjacent frequency scales. Because the continuous model utilizes an orthogonal parameterization that disentangles the amplitude of the biological drive from its memory, the steady-state variance ratio of the parasympathetic to sympathetic branch, $V_p$, is fixed directly to the empirical wavelet energy quotient:
 
 $$
 V_p = \frac{P_{HF}}{P_{LF}}
@@ -212,7 +212,7 @@ $$
 \text{Var}(\tau_k) = \frac{\sigma^2}{\nu_k^3}
 $$
 
-Because the macroscopic variance is inversely proportional to the cube of the drift ($\nu_k^3$), the framework structurally guarantees heteroskedasticity in the time domain. When parasympathetic tone increases, the instantaneous net drift $\nu_k$ is suppressed. Even with constant underlying system noise ($\sigma^2$), this suppression induces an exponential expansion in $\text{Var}(\tau_k)$, perfectly mimicking biological vagal gating. Conversely, parasympathetic withdrawal increases $\nu_k$, driving the macroscopic variance toward zero and recovering the rigid, low-variance pacing characteristic of pure sympathetic drive.
+Because the macroscopic variance is inversely proportional to the cube of the drift ($\nu_k^3$), the framework guarantees heteroskedasticity in the time domain. When parasympathetic tone increases, the instantaneous net drift $\nu_k$ is suppressed. Even with constant underlying system noise ($\sigma^2$), this suppression induces an exponential expansion in $\text{Var}(\tau_k)$, perfectly mimicking biological vagal gating. Conversely, parasympathetic withdrawal increases $\nu_k$, driving the macroscopic variance toward zero and recovering the rigid, low-variance pacing characteristic of pure sympathetic drive.
 
 # Continuous-discrete state-space formulation via matrix exponential {#sec-matrix-exponential}
 
@@ -248,7 +248,7 @@ e^{-\kappa_p \Delta t_k} & 0 & 0 & 0 \\
 \end{bmatrix}
 $$
 
-This transition matrix $\mathbf{F}_k$ allows the Kalman filter to propagate the state vector continuously across non-uniform biological time. Upon the registration of a macroscopic interval (the phase-domain boundary crossing), the integral states $I_p$ and $I_s$ are projected into the observation equation, and subsequently structurally reset to zero. This mathematical reset perfectly mirrors the biophysical depolarization and refractory resetting of the sinoatrial node, preserving absolute continuous-time fidelity without accumulation of discrete-time discretization errors.
+This transition matrix $\mathbf{F}_k$ allows the Kalman filter to propagate the state vector continuously across non-uniform biological time. Upon the registration of a macroscopic interval (the phase-domain boundary crossing), the integral states $I_p$ and $I_s$ are projected into the observation equation, and subsequently reset to zero. This mathematical reset perfectly mirrors the biophysical depolarization and refractory resetting of the sinoatrial node, preserving absolute continuous-time fidelity without accumulation of discrete-time discretization errors.
 
 ## Explicit derivation of the transition matrix
 
