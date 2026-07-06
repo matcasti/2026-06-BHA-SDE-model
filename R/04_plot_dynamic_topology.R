@@ -59,12 +59,18 @@ generate_topology_figure <- function(fit_obj, protocol_name = "Protocol", n = NU
   implied_rr <- (1.0 + Phase_p - Phase_s) / p$nu0
   df_fit <- data.frame(
     Time_Min = time_min, Observed = dy, Implied = implied_rr,
-    Lower = implied_rr - qnorm(0.975) * rr_se,
-    Upper = implied_rr + qnorm(0.975) * rr_se
+    Lower_95 = implied_rr - qnorm(1 - (1 - 0.95) / 2) * rr_se,
+    Upper_95 = implied_rr + qnorm(1 - (1 - 0.95) / 2) * rr_se,
+    Lower_80 = implied_rr - qnorm(1 - (1 - 0.80) / 2) * rr_se,
+    Upper_80 = implied_rr + qnorm(1 - (1 - 0.80) / 2) * rr_se,
+    Lower_50 = implied_rr - qnorm(1 - (1 - 0.50) / 2) * rr_se,
+    Upper_50 = implied_rr + qnorm(1 - (1 - 0.50) / 2) * rr_se
   )
 
   pA <- ggplot(df_fit, aes(x = Time_Min)) +
-    geom_ribbon(aes(ymin = Lower, ymax = Upper), fill = "darkred", alpha = 0.15) +
+    geom_ribbon(aes(ymin = Lower_95, ymax = Upper_95), fill = "darkred", alpha = 0.1) +
+    # geom_ribbon(aes(ymin = Lower_80, ymax = Upper_80), fill = "darkred", alpha = 0.1) +
+    # geom_ribbon(aes(ymin = Lower_50, ymax = Upper_50), fill = "darkred", alpha = 0.1) +
     geom_line(aes(y = Observed, color = "Observed RR"), linewidth = 0.5, alpha = 0.5) +
     geom_line(aes(y = Implied, color = "Filtered RR"), linewidth = 0.5) +
     scale_color_manual(values = c("Observed RR" = "gray60", "Filtered RR" = "darkred")) +
@@ -86,12 +92,18 @@ generate_topology_figure <- function(fit_obj, protocol_name = "Protocol", n = NU
     State = factor(rep(c("Parasympathetic", "Sympathetic"), each = N),
                    levels = c("Parasympathetic", "Sympathetic"))
   )
-  df_X$Lower <- df_X$Value - qnorm(0.975) * df_X$SE
-  df_X$Upper <- df_X$Value + qnorm(0.975) * df_X$SE
+  # df_X$Lower_95 <- df_X$Value - qnorm(1 - (1 - 0.95) / 2) * df_X$SE
+  # df_X$Lower_80 <- df_X$Value - qnorm(1 - (1 - 0.80) / 2) * df_X$SE
+  # df_X$Lower_50 <- df_X$Value - qnorm(1 - (1 - 0.50) / 2) * df_X$SE
+  # df_X$Upper_95 <- df_X$Value + qnorm(1 - (1 - 0.95) / 2) * df_X$SE
+  # df_X$Upper_80 <- df_X$Value + qnorm(1 - (1 - 0.80) / 2) * df_X$SE
+  # df_X$Upper_50 <- df_X$Value + qnorm(1 - (1 - 0.50) / 2) * df_X$SE
 
   pB <- ggplot(df_X, aes(x = Time_Min, y = Value, color = State, fill = State)) +
     geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.3) +
-    geom_ribbon(aes(ymin = Lower, ymax = Upper), alpha = 0.15, color = NA) +
+    # geom_ribbon(aes(ymin = Lower_95, ymax = Upper_95), alpha = 0.2, color = NA) +
+    # geom_ribbon(aes(ymin = Lower_80, ymax = Upper_80), alpha = 0.2, color = NA) +
+    # geom_ribbon(aes(ymin = Lower_50, ymax = Upper_50), alpha = 0.2, color = NA) +
     geom_line() +
     scale_color_manual(values = color_branches) +
     scale_fill_manual(values = color_branches) +
@@ -112,8 +124,8 @@ generate_topology_figure <- function(fit_obj, protocol_name = "Protocol", n = NU
   inv_Sigma  <- solve(Sigma_stat)
 
   p_range <- range(X_p); s_range <- range(X_s)
-  margin_p <- diff(p_range) * 0.2; if(margin_p == 0) margin_p <- 0.01
-  margin_s <- diff(s_range) * 0.2; if(margin_s == 0) margin_s <- 0.01
+  margin_p <- diff(p_range) * 0.2; if(margin_p == 0) margin_p <- 0.05
+  margin_s <- diff(s_range) * 0.2; if(margin_s == 0) margin_s <- 0.05
 
   grid_p <- seq(p_range[1] - margin_p, p_range[2] + margin_p, length.out = 150)
   grid_s <- seq(s_range[1] - margin_s, s_range[2] + margin_s, length.out = 150)
@@ -134,8 +146,8 @@ generate_topology_figure <- function(fit_obj, protocol_name = "Protocol", n = NU
     geom_path(data = df_traj, aes(x = X_p, y = X_s, color = Time),
               arrow = arrow(type = "closed", length = unit(0.08, "inches")),
               linewidth = 0.7, show.legend = FALSE) +
-    scale_fill_viridis_c(option = "mako", name = "Thermodynamic\nPotential (U)", direction = -1) +
-    scale_color_viridis_c(option = "plasma", guide = "none") +
+    scale_fill_viridis_c(option = "G", name = "Thermodynamic\nPotential (U)") +
+    scale_color_viridis_c(option = "C", guide = "none") +
     scale_x_continuous(expand = c(0,0)) +
     scale_y_continuous(expand = c(0,0)) +
     labs(title = "III. Phase Space Topology & Trajectory",
@@ -167,7 +179,7 @@ fit_tilt <- raw_models[["12726"]]
 fig_tilt <- generate_topology_figure(fit_tilt, protocol_name = "A. Orthostatic Tilt Transition", n = 1100)
 
 ## Generating Topology Figure for Exercise Protocol...
-fit_exercise <- raw_models[["007"]]
+fit_exercise <- raw_models[["133"]] # 242
 fig_exercise <- generate_topology_figure(fit_exercise, protocol_name = "B. Exercise & Metabolic Recovery")
 
 ## Combining into side-by-side composite...

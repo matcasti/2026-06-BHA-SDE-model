@@ -4,7 +4,7 @@ title: "Supplementary material"
 
 # Asymptotic convergence of the phase-domain mapping {#sec-phase-mapping}
 
-The phase-domain coordinate mapping simplifies the estimation architecture by evaluating the accumulated phase over a deterministic temporal window $\Delta t_k$, relaxing the continuous path-survival condition required by a strict first-passage time (FPT) formulation. We demonstrate here that under the physiological constraints of the sinoatrial node, this terminal-threshold formulation converges asymptotically to the boundary-crossing probability, making the analytical discrepancy negligible
+The phase-domain coordinate mapping simplifies the estimation architecture by evaluating the accumulated phase over a deterministic temporal window $\Delta t_k$, relaxing the continuous path-survival condition required by a strict first-passage time (FPT) formulation. We demonstrate here that under the physiological constraints of the sinoatrial node, this terminal-threshold formulation converges asymptotically to the boundary-crossing probability, making the analytical discrepancy negligible.
 
 To formalize this, consider the complete, closed-form cumulative distribution function (CDF) for the first-passage time $\tau$ of a one-dimensional drift-diffusion process with constant net drift $\nu$, volatility $\sigma$, and an absorbing boundary at $a = 1.0$:
 
@@ -12,29 +12,21 @@ $$
 F_{\tau}(t) = \Phi\left( \frac{\nu t - 1.0}{\sigma \sqrt{t}} \right) + \exp\left( \frac{2\nu}{\sigma^2} \right) \Phi\left( \frac{-\nu t - 1.0}{\sigma \sqrt{t}} \right)
 $$
 
-where $\Phi(\cdot)$ denotes the standard normal cumulative distribution function. The total probability density is governed by two mathematically distinct components.
+where $\Phi(\cdot)$ denotes the standard normal cumulative distribution function. The total probability density is governed by two mathematically distinct components derived via the reflection principle of Brownian motion. First, the primary drift-diffusion term $\Phi\left( \frac{\nu t - 1.0}{\sigma \sqrt{t}} \right)$ represents the unconstrained probability that the continuous process is located above the threshold at the temporal slice $t$. This term maps directly to the linear Gaussian observation equation utilized in our phase-domain inversion. Second, the boundary reflection term $\exp\left( \frac{2\nu}{\sigma^2} \right) \Phi\left( \frac{-\nu t - 1.0}{\sigma \sqrt{t}} \right)$ serves as a mathematical penalty accounting exclusively for the sub-population of sample paths that crossed the absorbing boundary prior to time $t$ but subsequently diffused back below the threshold.
 
-The total probability density is governed by two mathematically distinct components derived via the reflection principle of Brownian motion. First, the primary drift-diffusion term $\Phi\left( \frac{\nu t - 1.0}{\sigma \sqrt{t}} \right)$, which represents the unconstrained probability that the continuous process is located above the threshold at the temporal slice $t$. This term maps directly to the linear Gaussian observation equation utilized in our phase-domain inversion. Second, the boundary reflection term $\exp\left( \frac{2\nu}{\sigma^2} \right) \Phi\left( \frac{-\nu t - 1.0}{\sigma \sqrt{t}} \right)$, which serves as a mathematical penalty accounting exclusively for the sub-population of sample paths that crossed the absorbing boundary prior to time $t$ but subsequently diffused back below the threshold.
-
-The mathematical validity of omitting the boundary-reflection correction depends entirely on the biological regime of the physical system. In cardiac electrophysiology, the intrinsic depolarization of pacemaker cells is dictated by a massive, highly directed ionic current relative to microscopic thermodynamic perturbations. Consequently, the sinoatrial node operates within a high-drift, low-noise regime, characterized by a large dimensionless drift-to-diffusion ratio ($\mathrm{Pe} = \frac{\nu}{\sigma} \gg 1$, where $\sigma$ is the diffusion coefficient at unit threshold).
-
-Under these physiological parameters, we evaluate the behavior of the correction term. Because both the net drift rate $\nu$ and the normalized threshold are positive, the argument of the normal CDF in the reflection term is deeply negative for all valid temporal intervals:
+The mathematical validity of omitting the boundary-reflection correction depends entirely on the biological regime of the physical system. In cardiac electrophysiology, the intrinsic depolarization of pacemaker cells is dictated by a large, highly directed ionic current relative to microscopic thermodynamic perturbations. Consequently, the sinoatrial node operates within a high-drift, low-noise regime, characterized by a large dimensionless drift-to-diffusion ratio ($\mathrm{Pe} = \frac{\nu}{\sigma} \gg 1$, where $\sigma$ is the diffusion coefficient at unit threshold). Under these physiological parameters, we evaluate the behavior of the correction term. Because both the net drift rate $\nu$ and the normalized threshold are positive, the argument of the normal CDF in the reflection term is strongly negative for all valid temporal intervals:
 
 $$
 \lim_{\frac{\nu}{\sigma} \to \infty} \frac{-\nu t - 1.0}{\sigma \sqrt{t}} = -\infty
 $$
 
-Because the tail of the standard normal distribution decays exponentially ($\Phi(-x) \sim \frac{1}{x\sqrt{2\pi}}e^{-x^2/2}$ as $x \to \infty$), the evaluation of $\Phi\left( \frac{-\nu t - 1.0}{\sigma \sqrt{t}} \right)$ approaches zero asymptotically. Even when scaled by the preceding exponential martingale multiplier $\exp\left(\frac{2\nu}{\sigma^2}\right)$, the product is dominated entirely by the super-exponential decay of the normal tail.
-
-For standard physiological intervals ($\Delta t_k \sim 1.0 \text{ s}$) and empirical autonomic volatilities observed in mammalian cardiac pacing, the absolute numerical value of this second term sits safely below the machine epsilon limit ($\approx 2.22 \times 10^{-16}$) of modern double-precision floating-point representations.
-
-Therefore, the true first-passage distribution collapses cleanly into the single Gaussian component:
+Because the tail of the standard normal distribution decays exponentially ($\Phi(-x) \sim \frac{1}{x\sqrt{2\pi}}e^{-x^2/2}$ as $x \to \infty$), the evaluation of $\Phi\left( \frac{-\nu t - 1.0}{\sigma \sqrt{t}} \right)$ approaches zero asymptotically. Even when scaled by the preceding exponential martingale multiplier $\exp\left(\frac{2\nu}{\sigma^2}\right)$, the product is dominated by the rapid exponential decay of the normal tail. For standard physiological intervals ($\Delta t_k \sim 1.0 \text{ s}$) and empirical autonomic volatilities observed in mammalian cardiac pacing, the absolute numerical value of this second term falls below the machine epsilon limit ($\approx 2.22 \times 10^{-16}$) of modern double-precision floating-point representations. Therefore, the true first-passage distribution reduces to the single Gaussian component:
 
 $$
 F_{\tau}(t) \approx \Phi\left( \frac{\nu t - 1.0}{\sigma \sqrt{t}} \right)
 $$
 
-By establishing that the probability of a path crossing the depolarization threshold and returning below it within a single cardiac cycle is biologically and numerically negligible, the phase-domain inversion ceases to be a heuristic approximation. It represents the physical limit of the continuous point process, safely vindicating the use of closed-form linear-Gaussian Kalman filtering theory.
+By establishing that the probability of a path crossing the depolarization threshold and returning below it within a single cardiac cycle is biologically and numerically negligible, the phase-domain inversion ceases to be a heuristic approximation. It represents the physical limit of the continuous point process, justifying the use of closed-form linear-Gaussian Kalman filtering theory.
 
 # Estimation algorithm {#sec-estimation-algorithm}
 
@@ -60,13 +52,13 @@ To inform the temporal behavior of the system, the algorithm further extracts th
 
 Evaluating the continuous-time transitions of the Ornstein-Uhlenbeck processes over discrete, uneven observation intervals requires computing the exact matrix exponential and the corresponding process covariance integrals. To guarantee that the variance geometry remains conserved as the numerical optimizer tests different clearance rates, the continuous diffusion coefficient is evaluated dynamically within the integration step as $\sigma^2 = 2\kappa V$, where $V$ is the stationary amplitude anchor. 
 
-When the product of the neural clearance rate $\kappa$ and the interval duration $\Delta t_k$ approaches zero, the analytical solutions become computationally unstable. Standard evaluation of the integrated phase variance involves operations configured as $(1 - \exp(-x))/x$, which succumb to catastrophic floating-point cancellation limits in standard architectures. To resolve this instability, the algorithm evaluates the dimensionless argument $x = \kappa \Delta t_k$. For values of $x \ge 10^{-3}$, the integrated phase covariance $Q_{3,3}$ is evaluated using the closed-form continuous integral:
+When the product of the neural clearance rate $\kappa$ and the interval duration $\Delta t_k$ approaches zero, the analytical solutions become computationally unstable. Standard evaluation of the integrated phase variance involves operations configured as $(1 - \exp(-x))/x$, which succumb to severe floating-point underflow limits in standard architectures. To resolve this instability, the algorithm evaluates the dimensionless argument $x = \kappa \Delta t_k$. For values of $x \ge 10^{-3}$, the integrated phase covariance $Q_{3,3}$ is evaluated using the closed-form continuous integral:
 
 $$
 Q_{3,3} = \frac{2\kappa V}{\kappa^2} \left[ \Delta t_k - \frac{2}{\kappa}(1 - e^{-\kappa \Delta t_k}) + \frac{1}{2\kappa}(1 - e^{-2\kappa \Delta t_k}) \right]
 $$
 
-When the observation interval or the clearance rate causes $x < 10^{-3}$, the algorithm transitions to a truncated Taylor series expansion for the marginal components of the process covariance matrix $Q_k$. This substitution bypasses the exponential subtractions entirely, ensuring that the process covariance matrices remain positive semi-definite near the limit boundary:
+When the observation interval or the clearance rate causes $x < 10^{-3}$, the algorithm transitions to a truncated Taylor series expansion for the marginal components of the process covariance matrix $Q_k$. This substitution bypasses the exponential subtractions entirely, ensuring that the process covariance matrices remain positive semidefinite near the limit boundary:
 
 $$
 Q_{3,3} \approx 2\kappa V \left[ \frac{\Delta t_k^3}{3} - \frac{\kappa \Delta t_k^4}{4} + \frac{7\kappa^2 \Delta t_k^5}{60} \right]
@@ -74,7 +66,7 @@ $$
 
 ## Kalman covariance updates
 
-The dual-filter Generalized Least Squares engine relies on two concurrent state vectors to compute the normalized innovations. The primary vector $X^{(0)}$ evaluates the stochastic progression assuming a null intrinsic baseline, while the secondary vector $X^{(\nu)}$ evaluates the deterministic system response to the time step variable. The numerical stability of this recursive filter is maintained through the specific algebraic formulation of the covariance update. Standard Kalman implementations utilize the subtraction form for the a posteriori covariance, which can lose positive semi-definiteness under conditions of low measurement noise or prolonged estimation. The present architecture utilizes the Joseph form of the covariance update equation:
+The dual-filter Generalized Least Squares engine relies on two concurrent state vectors to compute the normalized innovations. The primary vector $X^{(0)}$ evaluates the stochastic progression assuming a null intrinsic baseline, while the secondary vector $X^{(\nu)}$ evaluates the deterministic system response to the time step variable. The numerical stability of this recursive filter is maintained through the specific algebraic formulation of the covariance update. Standard Kalman implementations utilize the subtraction form for the a posteriori covariance, which can lose positive semidefiniteness under conditions of low measurement noise or prolonged estimation. The present architecture utilizes the Joseph form of the covariance update equation:
 
 $$
 P_{k|k} = (I - K_k H) P_{k|k-1} (I - K_k H)^T + K_k R_k K_k^T
@@ -86,7 +78,7 @@ where $K_k$ is the Kalman gain, $H$ is the observation matrix, and $R_k$ is the 
 
 Within this structural formulation, it is mathematically necessary to distinguish the specific physical sources of system variance. The continuous process covariance matrix ($Q_k$) explicitly captures the integrated Brownian perturbations of the ionic currents accumulating throughout the depolarization interval. In contrast, the discrete observation noise variance ($R_k$) absorbs instantaneous stochasticity at the absorbing boundary. Specifically, $R_k$ quantifies the biophysical jitter of the cellular depolarization threshold itself, as well as the deterministic quantization error inherent to the finite sampling frequency of the electrocardiogram hardware.
 
-This algebraic structure guarantees that the covariance matrix $P_{k|k}$ remains symmetric and positive semi-definite regardless of the numerical magnitude of the measurement updates.
+This algebraic structure guarantees that the covariance matrix $P_{k|k}$ remains symmetric and positive semidefinite regardless of the numerical magnitude of the measurement updates.
 Explicit structural symmetry is subsequently enforced by averaging the matrix with its own transpose.
 
 ### Hybrid continuous-discrete jump system and phase repolarization
@@ -129,7 +121,7 @@ $$
 
 The validation of point-process models using the Kolmogorov-Smirnov (KS) goodness-of-fit test relies heavily on the time-rescaling theorem. However, it is mathematically necessary to distinguish between the stochastic assumptions of classical time-rescaling theorem (which assumes probabilistic event arrivals) and the SPARK framework (which models deterministic thresholds over stochastic diffusion paths). This section formally demonstrates that while the underlying generative noise distributions differ, the probability integral transform utilized in both frameworks ensures isomorphic equivalence for goodness-of-fit evaluation.
 
-## The classical poisson arrival formulation
+## The classical Poisson arrival formulation
 
 In classical point-process statistics, an event (heartbeat) is modeled as a stochastic arrival governed by a conditional intensity function $\lambda(t)$. Under this assumption, the generation of events follows an inhomogeneous Poisson process.
 
@@ -153,7 +145,7 @@ This $\mathcal{U}(0,1)$ sequence is then evaluated geometrically using the KS te
 
 ### The phase-domain diffusion formulation
 
-In contrast, the SPARK framework abandons the Poisson arrival assumption. Cardiac pacing is modeled explicitly as a continuous-time Integrate-and-Fire (IF) diffusion process. Here, the event is triggered deterministically when the cellular membrane potential reaches a threshold of $1$. The stochasticity arises exclusively from the continuous Brownian motion (Wiener process, $dW_t$) of the biological environment during the interval.
+In contrast, the SPARK framework abandons the Poisson arrival assumption. Cardiac pacing is modeled explicitly as a continuous-time integrate-and-fire (IF) diffusion process. Here, the event is triggered deterministically when the cellular membrane potential reaches a threshold of $1$. The stochasticity arises exclusively from the continuous Brownian motion (Wiener process, $dW_t$) of the biological environment during the interval.
 
 The governing stochastic differential equation over the observed interval is defined as:
 
@@ -212,7 +204,7 @@ $$
 \text{Var}(\tau_k) = \frac{\sigma^2}{\nu_k^3}
 $$
 
-Because the macroscopic variance is inversely proportional to the cube of the drift ($\nu_k^3$), the framework guarantees heteroskedasticity in the time domain. When parasympathetic tone increases, the instantaneous net drift $\nu_k$ is suppressed. Even with constant underlying system noise ($\sigma^2$), this suppression induces an exponential expansion in $\text{Var}(\tau_k)$, perfectly mimicking biological vagal gating. Conversely, parasympathetic withdrawal increases $\nu_k$, driving the macroscopic variance toward zero and recovering the rigid, low-variance pacing characteristic of pure sympathetic drive.
+Because the macroscopic variance is inversely proportional to the cube of the drift ($\nu_k^3$), the framework guarantees heteroskedasticity in the time domain. When parasympathetic tone increases, the instantaneous net drift $\nu_k$ is suppressed. Even with constant underlying system noise ($\sigma^2$), this suppression induces an exponential expansion in $\text{Var}(\tau_k)$, accurately mimicking biological vagal gating. Conversely, parasympathetic withdrawal increases $\nu_k$, driving the macroscopic variance toward zero and recovering the low-variance pacing characteristic of pure sympathetic drive.
 
 # Continuous-discrete state-space formulation via matrix exponential {#sec-matrix-exponential}
 
@@ -248,7 +240,7 @@ e^{-\kappa_p \Delta t_k} & 0 & 0 & 0 \\
 \end{bmatrix}
 $$
 
-This transition matrix $\mathbf{F}_k$ allows the Kalman filter to propagate the state vector continuously across non-uniform biological time. Upon the registration of a macroscopic interval (the phase-domain boundary crossing), the integral states $I_p$ and $I_s$ are projected into the observation equation, and subsequently reset to zero. This mathematical reset perfectly mirrors the biophysical depolarization and refractory resetting of the sinoatrial node, preserving absolute continuous-time fidelity without accumulation of discrete-time discretization errors.
+This transition matrix $\mathbf{F}_k$ allows the Kalman filter to propagate the state vector continuously across non-uniform biological time. Upon the registration of a macroscopic interval (the phase-domain boundary crossing), the integral states $I_p$ and $I_s$ are projected into the observation equation, and subsequently reset to zero. This mathematical reset accurately mirrors the biophysical depolarization and refractory resetting of the sinoatrial node, preserving absolute continuous-time fidelity without accumulation of discrete-time discretization errors.
 
 ## Explicit derivation of the transition matrix
 

@@ -20,7 +20,7 @@ for (id in subjects) {
     RecordName = paste0("data-raw/fantasia/",id),
     annotator = "ecg"
   )$Beat$Time |>
-    diff() |> CardioCurveR::clean_outlier(threshold = 3)
+    diff() |> CardioCurveR::clean_outlier(threshold = 5, replace = "loess")
 
 cat(rr_intervals, sep = "\n", file = paste0("data/fantasia/",id,".txt"))
 }
@@ -45,7 +45,7 @@ for (id in subjects) {
     extension = "wqrs",
     format = "s",
     as_array = TRUE
-  ) |> CardioCurveR::clean_outlier(threshold = 3)
+  ) |> CardioCurveR::clean_outlier(threshold = 5, replace = "loess")
 
   cat(rr_intervals, sep = "\n", file = paste0("data/prcp/",id,".txt"))
 }
@@ -60,7 +60,8 @@ subjects <- list.files("data-raw/tmst/hrv_data/") |>
 
 for (id in subjects) {
   rr_intervals <- import_RRi_txt(file = paste0("data-raw/tmst/hrv_data/",id), F, F, warn = FALSE)$RRi
-  rr_intervals <- clean_outlier(rr_intervals, threshold = 3)
+  rr_intervals <- rr_intervals[cumsum(rr_intervals/1000) < 1000]
+  rr_intervals <- clean_outlier(rr_intervals, threshold = 5, replace = "loess")
   rr_intervals <- rr_intervals[!is.na(rr_intervals)]/1000
   cat(rr_intervals, sep = "\n", file = paste0("data/tmst/",id))
 }

@@ -38,22 +38,79 @@ color_branches <- c("Parasympathetic" = "#4DB0D0",
 # FIGURE 1: ASYMPTOTIC VALIDATION PANEL (Section 3.1)
 # ==============================================================================
 
-# --- Panel A: Engineering Tracking Error (ECDF) ---
+# --- Panel A: Engineering Tracking Error (ECDF with 95% CI) ---
 # Shows the cumulative proportion of subjects achieving a given error threshold
-p1A <- ggplot(df_valid, aes(x = MAPE_pct, color = Dataset)) +
-  stat_ecdf(geom = "step", linewidth = 0.8) +
+
+# 1. Pre-calculate the ECDF and 95% pointwise confidence intervals
+df_ecdf <- df_valid %>%
+  mutate(Error_Prop = MAPE_pct / 100) %>%
+  arrange(Dataset, Error_Prop) %>%
+  group_by(Dataset) %>%
+  mutate(
+    n_group = n(),
+    CDF = row_number() / n_group,
+    # Binomial standard error for the empirical proportion
+    SE = sqrt((CDF * (1 - CDF)) / n_group),
+    # 95% CI bounds clamped between 0 and 1
+    Lower_CI = pmax(0, CDF - 1.96 * SE),
+    Upper_CI = pmin(1, CDF + 1.96 * SE)
+  ) %>%
+  ungroup()
+
+# 2. Force the ribbon to behave like a step function
+# First, add a (0,0) starting anchor point for each dataset to close the ribbons
+df_starts <- df_ecdf %>%
+  group_by(Dataset) %>%
+  slice(1) %>%
+  mutate(Error_Prop = 0, CDF = 0, Lower_CI = 0, Upper_CI = 0) %>%
+  ungroup()
+
+df_ecdf_padded <- bind_rows(df_starts, df_ecdf) %>%
+  arrange(Dataset, Error_Prop)
+
+# Next, duplicate rows to create explicit orthogonal coordinates (horizontal-vertical steps)
+df_ribbon_steps <- df_ecdf_padded %>%
+  group_by(Dataset) %>%
+  mutate(
+    Lower_CI_prev = lag(Lower_CI),
+    Upper_CI_prev = lag(Upper_CI),
+    CDF_prev = lag(CDF)
+  ) %>%
+  filter(!is.na(Lower_CI_prev)) %>% # Removes the first dummy row
+  mutate(
+    Lower_CI = Lower_CI_prev,
+    Upper_CI = Upper_CI_prev,
+    CDF = CDF_prev
+  ) %>%
+  select(-Lower_CI_prev, -Upper_CI_prev, -CDF_prev) %>%
+  ungroup()
+
+# Combine everything into a single dataframe arranged for drawing
+df_step_ci <- bind_rows(df_ecdf_padded, df_ribbon_steps) %>%
+  arrange(Dataset, Error_Prop, CDF)
+
+# 3. Plot the fully aligned geometric steps
+p1A <- ggplot(df_step_ci, aes(x = Error_Prop, color = Dataset, fill = Dataset)) +
+  facet_grid(rows = vars(Dataset)) +
   geom_hline(yintercept = 1, linetype = 2) +
+  # CI Ribbon (drawn first so it sits beneath the line)
+  geom_ribbon(aes(ymin = Lower_CI, ymax = Upper_CI), alpha = 0.2, color = NA) +
+  # Use geom_line() instead of geom_step() because df_step_ci already contains the explicit orthogonal steps
+  geom_line(aes(y = CDF), linewidth = 0.8) +
   scale_color_manual(values = color_cohorts) +
-  # Assuming MAPE_pct is 0-100. If it is 0-1, use scale = 100 in percent_format
-  scale_x_continuous(limits = c(0, quantile(df_valid$MAPE_pct, 0.99))) +
+  scale_fill_manual(values = color_cohorts) +
+  scale_x_continuous(limits = c(0, quantile(df_ecdf$Error_Prop, 0.99)),
+                     labels = scales::percent) +
   scale_y_continuous(labels = scales::percent, expand = c(0, 0)) +
   coord_cartesian(ylim = c(0, 1.05)) +
   labs(title = "A. Macroscopic Tracking Accuracy",
-       subtitle = "Cumulative distribution of absolute error",
+       subtitle = "Cumulative distribution of absolute error with 95% CI",
        x = "Mean Absolute Percentage Error (%)",
        y = "Cumulative Proportion of Subjects") +
   theme_classic() +
-  theme(plot.title = element_text(face = "bold"))
+  theme(strip.background = element_blank(),
+        strip.text = element_blank(),
+        plot.title = element_text(face = "bold"))
 
 # --- Panel B: Dynamic Completeness (Cohort-Specific PACF) ---
 
@@ -100,7 +157,7 @@ p1B <- ggplot(df_pacf, aes(x = Lag, y = Mean, color = Dataset, fill = Dataset)) 
   geom_point(size = 1.2, show.legend = FALSE) +
   scale_color_manual(values = color_cohorts) +
   scale_fill_manual(values = color_cohorts) +
-  scale_y_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0.4)) +
   labs(title = "B. Cohort-Specific PACF",
        subtitle = "Residual innovations reduced to white noise",
        x = "Cardiac Lag (Beats)",
@@ -112,12 +169,27 @@ p1B <- ggplot(df_pacf, aes(x = Lag, y = Mean, color = Dataset, fill = Dataset)) 
 
 # --- Panel C: Mathematical Exactness (KS-Distance Density) ---
 
+# 1. Calculate the critical D-statistic per dataset (alpha = 0.05)
+ks_bounds <- df_valid %>%
+  group_by(Dataset) %>%
+  summarise(
+    avg_N = mean(NumBeats, na.rm = TRUE),
+    critical_D = sqrt(-0.5 * log(0.01 / 2)) / sqrt(avg_N),
+    .groups = "drop"
+  )
+
+# 2. Add the vertical line to your ggplot
 p1C <- ggplot(df_valid, aes(x = KS_Stat, fill = Dataset, col = Dataset)) +
   facet_grid(rows = vars(Dataset)) +
-  geom_density(alpha = 0.7, linewidth = 1, trim = FALSE, show.legend = FALSE) +
+  geom_density(alpha = 0.5, linewidth = 1, trim = FALSE, show.legend = FALSE) +
+  geom_histogram(aes(y = after_stat(density)/2), binwidth = 0.005, show.legend = FALSE) +
+  tidybayes::stat_pointinterval(aes(y = -2), show.legend = FALSE,
+                                .width = c(0.50, 0.95),
+                                point_interval = "mode_hdci") +
+  # Add the critical D line using the new ks_bounds dataframe
   scale_fill_manual(values = color_cohorts, name = "Cohort", aesthetics = c("fill", "color")) +
-  scale_x_continuous(expand = c(0,0), limits = c(0,NA)) +
-  scale_y_continuous(expand = c(0,0,0.25,0)) +
+  scale_x_continuous(expand = c(0,0), limits = c(0, NA)) +
+  scale_y_continuous(expand = c(0.1,0,0.1,0)) +
   labs(title = "C. Time-Rescaling Theorem",
        subtitle = "KS D-statistic aggregation (Geometric Distance)",
        x = "Kolmogorov-Smirnov Distance (D-Statistic)",
@@ -179,8 +251,8 @@ df_expected <- data.frame(
 )
 
 # 2. Simulate Stochastic Paths (3 realizations per branch to show realistic variance)
-set.seed(42) # Ensure reproducible noise paths for the manuscript figure
-n_paths <- 10
+set.seed(123) # Ensure reproducible noise paths for the manuscript figure
+n_paths <- 20
 df_stochastic <- data.frame()
 
 for (p in 1:n_paths) {
@@ -239,13 +311,18 @@ df_long_kappa <- df_valid %>%
 
 # Create an overlapping density plot faceted by Dataset
 p2_kappa <- ggplot(df_long_kappa, aes(x = Kappa, fill = Branch, col = Branch)) +
-  geom_density(alpha = 0.5, linewidth = 1, show.legend = FALSE) +
+  geom_density(aes(y = after_stat(ndensity)), alpha = 0.5, linewidth = 1, show.legend = FALSE) +
+  geom_histogram(aes(y = after_stat(ndensity)/2), show.legend = FALSE, alpha = 0.5) +
+  tidybayes::stat_pointinterval(aes(y = -0.2), show.legend = FALSE,
+                                .width = c(0.50, 0.95),
+                                position = position_dodge(orientation = "y", width = 0.3),
+                                point_interval = "mode_hdci") +
   scale_fill_manual(values = color_branches, aesthetics = c("color", "fill")) +
   scale_x_continuous(trans = "log10",
                      labels = scales::label_log(),
                      expand = c(0,0)) +
-  scale_y_continuous(expand = c(0,0,0.1,0)) +
-  facet_grid(rows = vars(Dataset), scales = "free_y") +
+  scale_y_continuous(expand = c(0,0,0.2,0)) +
+  facet_grid(rows = vars(Dataset)) +
   labs(title = "B. Kinetic Parameter Segregation",
        subtitle = "Log-distribution of clearance rates (κ)",
        x = "Clearance Rate Constant, κ (Hz) [Log Scale]",

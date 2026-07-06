@@ -714,7 +714,7 @@ report_batch_metrics <- function(batch_obj) {
   cat(sprintf("Time-Rescaling KS Pass Rate (p > 0.05)   : %.1f%% (Mean Stat: %.4f)\n",
               (alpha_passing / N) * 100, mean(df$KS_Stat)))
   cat(sprintf("Mean Whiteness Violations (out of 40)    : %.2f lags\n",
-              mean(df$ACF_Violations)))
+              mean(df$PACF_Violations)))
 
   cat("\n--- Kinetic Parameter Estimations (Mean ± SD) ---\n")
   cat(sprintf("Baseline Pacing (Nu_0)         : %.3f ± %.3f Hz\n", mean(df$Nu_0), sd(df$Nu_0)))
