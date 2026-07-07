@@ -229,7 +229,7 @@ taus_mean <- tidybayes::median_qi(1 / df$Kappa_S) |> with(sprintf("%.2f seconds,
 # Compare steady-state sympathetic variance (sig_s^2 / 2ks) between Rest, Tilt, Exercise
 df <- df |> transform(Symp_Var = Sigma_sys2 / (2 * Kappa_S)) # Assuming Sigma_sys2 is proxy for sig_s^2
 kruskal_res <- kruskal.test(Symp_Var ~ Dataset, data = df)
-kw_test <- "$\\chi^2$ (2) = 37.55, p-value < 0.001"
+kw_test <- "$\\chi^2$ (2) = 43.31, p-value < 0.001"
 ```
 
 
@@ -265,7 +265,7 @@ During the sharp physiological transition of the orthostatic tilt, the CWT exhib
 
 In contrast, the proposed SDE framework tracked the structural break instantaneously. By natively estimating the states in the time domain as a continuous stochastic process, the generative model entirely bypasses the traditional time-frequency uncertainty trade-off. This results in zero algorithmic latency and eliminates temporal smearing, allowing for the precise localization of transient autonomic shifts that classical moving-window techniques fail to capture.
 
-![Avoiding the temporal-resolution limitations of windowed spectral methods. (A) The proposed generative SDE framework achieves instantaneous detection of the state shift at the exact onset of orthostatic stress. (B) Benchmarking against the classical Continuous Morlet Wavelet Transform (CWT). The fundamental requirement for temporal windowing in non-stationary spectral analysis introduces a severe "Heisenberg resolution smear zone", resulting in non-causal bidirectional blurring and a significant delay in localizing the autonomic transition.](figures/fig4_benchmarking_comparison.png){#fig-benchmarking width=100%}
+![Avoiding the temporal-resolution limitations of traditional spectral methods. (A) The proposed generative SDE framework achieves instantaneous detection of the state shift at the exact onset of orthostatic stress. (B) Benchmarking against the classical Continuous Morlet Wavelet Transform (CWT). The fundamental requirement for temporal windowing in non-stationary spectral analysis introduces a severe "Heisenberg resolution smear zone", resulting in non-causal bidirectional blurring and a significant delay in localizing the autonomic transition.](figures/fig4_benchmarking_comparison.png){#fig-benchmarking width=100%}
 
 # Discussion
 
